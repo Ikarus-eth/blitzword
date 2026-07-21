@@ -94,7 +94,13 @@ react-dom/cjs/react-dom.production.min.js:
 <script>
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', function () {
-    navigator.serviceWorker.register('sw.js').catch(function () {});
+    // updateViaCache:'none' stops the browser from reusing an HTTP-cached
+    // copy of sw.js itself (it otherwise can, for up to 24h by spec) —
+    // combined with sw.js's own no-store fetches, this is what actually
+    // makes new deployments show up promptly.
+    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(function (reg) {
+      reg.update().catch(function () {});
+    }).catch(function () {});
   });
 }
 </script>

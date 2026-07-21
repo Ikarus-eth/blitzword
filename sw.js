@@ -1,4 +1,4 @@
-const CACHE = "blitzwort-v1";
+const CACHE = "blitzwort-v2";
 const ASSETS = ["./", "./index.html", "./apple-touch-icon.png", "./icon-512.png", "./manifest.json"];
 
 self.addEventListener("install", (e) => {
@@ -16,7 +16,11 @@ self.addEventListener("activate", (e) => {
 self.addEventListener("fetch", (e) => {
   if (e.request.method !== "GET") return;
   e.respondWith(
-    fetch(e.request)
+    // cache: "no-store" forces a real network round-trip instead of letting
+    // the browser silently reuse an HTTP-cached copy of this exact URL —
+    // without it, "network-first" can still serve stale content on every
+    // load, which is what happened here.
+    fetch(e.request, { cache: "no-store" })
       .then((res) => {
         const copy = res.clone();
         caches.open(CACHE).then((c) => c.put(e.request, copy));
