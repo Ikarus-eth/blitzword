@@ -1,5 +1,5 @@
 const CACHE = "blitzwort-v2";
-const ASSETS = ["./", "./index.html", "./apple-touch-icon.png", "./icon-512.png", "./manifest.json"];
+const ASSETS = ["./", "./index.html", "./apple-touch-icon.png", "./icon-512.png", "./manifest.json", "./words/de-sprite.mp3", "./words/de-sprite.json"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).catch(() => {}));
