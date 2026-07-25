@@ -1447,7 +1447,13 @@ export default function App() {
           ...cardSt, borderRadius: 18, cursor: "pointer"
         }}>{snd ? "🔊" : "🔇"}</button>
 
-        <div style={{ fontSize: "clamp(38px,7vh,56px)", lineHeight: 1 }}>📖⚡</div>
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "center", flexWrap: "wrap",
+          gap: "clamp(8px,1.6vw,16px)", lineHeight: 1
+        }}>
+          <span style={{ fontSize: "clamp(38px,7vh,56px)" }}>📖⚡</span>
+          <span style={{ fontSize: "clamp(30px,5.6vh,46px)", fontWeight: 900, color: C.ink }}>BlitzWort</span>
+        </div>
 
         <div style={{ display: "flex", gap: 18, flexWrap: "wrap", justifyContent: "center" }}>
           {["de", "en"].map((l) => {
