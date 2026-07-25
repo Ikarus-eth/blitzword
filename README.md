@@ -6,6 +6,11 @@ Runs as a PWA from the iPad home screen.
 **Live:** https://ikarus-eth.github.io/blitzword/
 (GitHub Pages, branch `main`, root folder)
 
+Read **`DESIGN.md`** as well before changing behaviour — it explains *why* the
+mastery model, level gates, reward gating and audio pipeline are shaped the way
+they are. Most of those rules replaced a simpler version that failed in a
+specific way.
+
 ## Repo layout
 
 | path | what |
