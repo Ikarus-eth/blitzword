@@ -68,16 +68,21 @@ const vowelish = optionTexts.length >= 2 && optionTexts.every((t) => /^[aeiouä�
 console.log("blank placeholder shown before answering:", blankShown);
 console.log("answer tiles are vowel units:", vowelish, JSON.stringify(optionTexts));
 
-// tap through a round; correctness does not matter here, coverage does
-let taps = 0;
-for (let i = 0; i < 14; i++) {
+// Tap through a round; correctness does not matter here, coverage does.
+// A miss holds until continue is pressed, so the driver presses it — otherwise
+// this loop stalls on the first wrong answer and stops testing anything.
+let taps = 0, held = 0;
+for (let i = 0; i < 16; i++) {
   const t = tiles();
   if (!t.length) break;
   tap(t[0]); taps++;
-  await sleep(1650);      // feedback hold is 1500 ms
+  await sleep(350);
+  const cont = buttons().find((b) => b.textContent.trim() === "\u25B6");
+  if (cont) { held++; tap(cont); }
+  await sleep(450);
   if (/\d+ \/ \d+/.test(body())) break;   // round summary reached
 }
-console.log("answers given:", taps);
+console.log("answers given:", taps, "| misses that held for a tap:", held);
 const summary = /\d+ \/ \d+/.test(body());
 console.log("round summary shown:", summary);
 
@@ -102,8 +107,9 @@ const check = (name, cond) => { console.log(`${cond ? "ok  " : "FAIL"}  ${name}`
 check("Vokal-Blitz reachable from the start screen", !!launcher);
 check("the vowel is blanked, not coloured, while the question is open", blankShown);
 check("answer tiles are vowel units", vowelish);
-check("the round accepts answers", taps >= 3);
-check("results recorded in vk", withVk.length >= 1);
+check("the round runs to the end", taps >= 10);
+check("a miss held the round until continue was pressed", held >= 1);
+check("results recorded in vk across the round", withVk.length >= 6);
 check("reading record untouched — s/cc/iv/due/h/r/wr all unchanged", drifted.length === 0);
 check("no uncaught errors", errs.length === 0);
 

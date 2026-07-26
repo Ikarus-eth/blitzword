@@ -623,6 +623,21 @@ const VOWEL_N = 12;
    decided by fine detail at the letter's edge. */
 const TRACK = "0.14em";
 
+/* A miss holds the screen: the right answer stays up, tapping it plays the word
+   again, and only this button moves on. Same three parts in all three games. */
+const ContinueBtn = ({ onClick }) => (
+  <button onClick={onClick} className="bigbtn" aria-label="weiter" style={{
+    position: "absolute", right: 14, bottom: 12, width: 78, height: 78, borderRadius: "50%",
+    background: C.green, border: `4px solid ${C.ink}`, boxShadow: "0 6px 0 rgba(34,49,74,.22)",
+    fontSize: 34, color: "#fff", cursor: "pointer", paddingLeft: 6, zIndex: 2
+  }}>▶</button>
+);
+const ReplayHint = () => (
+  <span style={{
+    position: "absolute", left: 16, bottom: 14, fontSize: 26, opacity: .5, pointerEvents: "none"
+  }}>🔊</span>
+);
+
 function trimDays(days) {
   const ks = Object.keys(days).sort();
   while (ks.length > 60) delete days[ks.shift()];
@@ -1613,10 +1628,12 @@ export default function App() {
     if (sndRef.current) { ok ? sfx.ok() : sfx.no(); }
     setLfb({ ok, chosen: opt });
     setLstage("fb");
-    setTimeout(() => {
-      if (li + 1 >= lq.length) { setPhase("ldone"); return; }
-      setLi(li + 1); setLfb(null); setLstage("fix");
-    }, ok ? 850 : 1700);
+    sayWord(item.answer);
+    if (ok) setTimeout(letterNext, 850);   // a miss waits for the continue button
+  };
+  const letterNext = () => {
+    if (li + 1 >= lq.length) { setPhase("ldone"); return; }
+    setLi(li + 1); setLfb(null); setLstage("fix");
   };
 
   const startPlay = () => { initAudio(); modeRef.current = { t: "normal", lvl: 0 }; flush(); startChunk(); };
@@ -1661,20 +1678,20 @@ export default function App() {
     if (sndRef.current) { ok ? sfx.ok() : sfx.no(); }
     setVfb({ ok, chosen: opt });
     sayWord(item.word);
-    setTimeout(() => {
-      if (vi + 1 >= vq.length) { setPhase("vdone"); return; }
-      vAt.current = Date.now();
-      setVi(vi + 1); setVfb(null);
-      sayWord(vq[vi + 1].word);
-    }, 1500);
+    if (ok) setTimeout(vowelNext, 1200);   // a miss waits for the continue button
+  };
+  const vowelNext = () => {
+    if (vi + 1 >= vq.length) { setPhase("vdone"); return; }
+    vAt.current = Date.now();
+    setVi(vi + 1); setVfb(null);
+    sayWord(vq[vi + 1].word);
   };
 
-  useEffect(() => {
-    if (phase !== "play") return;
-    let t;
-    if (stage === "fix") t = setTimeout(() => setStage("word"), 500);
-    else if (stage === "word") t = setTimeout(() => { tilesAt.current = Date.now(); setStage("answer"); }, DUR[effSpeed()]);
-    else if (stage === "fb") t = setTimeout(() => {
+  /* What happens after the feedback stage. Pulled out of the timer because a
+     wrong answer no longer runs on a timer: the correct word stays up, tappable
+     to hear again, until he taps continue. A miss is the one moment in the loop
+     where there is something to look at, and 1.9 s was not enough to look at it. */
+  const advanceAfterFb = () => {
       if (pendingGold.current) {
         setNewLvl(pendingGold.current); pendingGold.current = null;
         modeRef.current = { t: "normal", lvl: 0 };
@@ -1710,7 +1727,15 @@ export default function App() {
         }
         setPhase("chunkend");
       } else nextItem();
-    }, fb && fb.ok ? 950 : 1900);
+  };
+
+  useEffect(() => {
+    if (phase !== "play") return;
+    let t;
+    if (stage === "fix") t = setTimeout(() => setStage("word"), 500);
+    else if (stage === "word") t = setTimeout(() => { tilesAt.current = Date.now(); setStage("answer"); }, DUR[effSpeed()]);
+    else if (stage === "fb" && fb && fb.ok) t = setTimeout(advanceAfterFb, 950);
+    /* stage === "fb" && !fb.ok: no timer at all — waits for the continue button */
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stage, cur, phase]);
@@ -1990,7 +2015,7 @@ export default function App() {
 
         <div style={{
           ...cardSt, alignSelf: "center", width: "min(94vw,720px)",
-          height: "clamp(170px,32vh,250px)", display: "flex", alignItems: "center", justifyContent: "center"
+          height: "clamp(170px,32vh,250px)", display: "flex", alignItems: "center", justifyContent: "center", position: "relative"
         }}>
           {lstage === "fix" && <div style={{ width: 20, height: 20, borderRadius: "50%", background: C.ink, animation: "bwPulse .4s ease-in-out infinite" }} />}
           {lstage === "show" && (
@@ -1998,11 +2023,14 @@ export default function App() {
           )}
           {lstage === "answer" && <span style={{ fontSize: 64, color: C.mask, letterSpacing: 8 }}>▮▮▮▮</span>}
           {lstage === "fb" && lfb && (
-            <span style={{
+            <span onClick={() => { if (!lfb.ok) sayWord(item.answer); }} style={{
               fontSize: "clamp(60px,12vw,100px)", fontWeight: 800, letterSpacing: TRACK,
-              color: lfb.ok ? C.green : C.ink, animation: "bwPop .35s ease-out"
+              color: lfb.ok ? C.green : C.ink, animation: "bwPop .35s ease-out",
+              cursor: lfb.ok ? "default" : "pointer"
             }}>{lfb.ok ? "✓ " : ""}{item.answer}</span>
           )}
+          {lstage === "fb" && lfb && !lfb.ok && <ReplayHint />}
+          {lstage === "fb" && lfb && !lfb.ok && <ContinueBtn onClick={letterNext} />}
         </div>
 
         <div style={{
@@ -2074,7 +2102,9 @@ export default function App() {
           height: "clamp(170px,32vh,250px)", display: "flex", alignItems: "center",
           justifyContent: "center", gap: 18, position: "relative"
         }}>
-          <span style={{ fontSize: "clamp(52px,11vw,92px)", fontWeight: 800, letterSpacing: TRACK }}>
+          <span onClick={() => { if (vfb && !vfb.ok) sayWord(word); }}
+            style={{ fontSize: "clamp(52px,11vw,92px)", fontWeight: 800, letterSpacing: TRACK,
+              cursor: vfb && !vfb.ok ? "pointer" : "default" }}>
             {pre}
             {vfb
               /* colour only here, once the answer is locked in */
@@ -2091,6 +2121,8 @@ export default function App() {
             position: "absolute", top: 10, right: 12, width: 56, height: 56, fontSize: 26,
             ...cardSt, borderRadius: 18, cursor: "pointer"
           }}>🔊</button>
+          {vfb && !vfb.ok && <ReplayHint />}
+          {vfb && !vfb.ok && <ContinueBtn onClick={vowelNext} />}
         </div>
 
         <div style={{
@@ -2788,13 +2820,17 @@ export default function App() {
           <span style={{ fontSize: 64, color: C.mask, letterSpacing: 8 }}>▮▮▮▮</span>
         )}
         {stage === "fb" && fb && (
-          <span style={{
-            fontSize: "clamp(56px,11vw,92px)", fontWeight: 800, letterSpacing: TRACK,
-            color: fb.ok ? C.green : C.ink, animation: "bwPop .35s ease-out"
-          }}>
+          <span onClick={() => { if (!fb.ok) speak(target, lang, voiceURIsRef.current, speechRateRef.current, speechPitchRef.current); }}
+            style={{
+              fontSize: "clamp(56px,11vw,92px)", fontWeight: 800, letterSpacing: TRACK,
+              color: fb.ok ? C.green : C.ink, animation: "bwPop .35s ease-out",
+              cursor: fb.ok ? "default" : "pointer"
+            }}>
             {fb.ok ? "✓ " : ""}{target}{fb.mastered ? (modeRef.current.t === "turbo" ? " 🚀" : " ⭐") : ""}
           </span>
         )}
+        {stage === "fb" && fb && !fb.ok && <ReplayHint />}
+        {stage === "fb" && fb && !fb.ok && <ContinueBtn onClick={advanceAfterFb} />}
         {stage === "fb" && fb && fb.earned > 0 && (
           <span style={{
             position: "absolute", top: 10, right: 18, fontSize: 26, fontWeight: 900,

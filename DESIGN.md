@@ -23,6 +23,21 @@ iPad, landscape-first, installed to the home screen as a PWA.
 4. **Four answer tiles**; child taps the word he saw.
 5. Feedback + **the target word is spoken aloud**, on correct answers as well as
    wrong ones (closes the sound↔print loop at the moment of recognition).
+6. **A correct answer advances on its own after 950 ms. A wrong answer does
+   not advance at all** — it waits for a continue button.
+
+**Why a miss holds the screen.** The feedback stage used to be a timer: 950 ms
+correct, 1900 ms wrong. But a miss is the one moment in the loop where there is
+something worth looking at — the word he failed to recognise, spelled correctly,
+beside the tile he chose instead — and 1.9 s is not enough to study it, never
+mind enough to decide he wants to hear it again. So on a miss the correct word
+stays up, **tapping it replays the audio**, and only the continue button moves
+on. Correct answers keep their timer: the flow through material he knows should
+stay fast, and pausing there would only slow the session down.
+
+This applies identically in all three games. Tests assert the no-auto-advance
+behaviour directly — if someone reinstates the timer, `test_hold_on_miss` fails
+on the "still on the same word 4 s later" assertion.
 
 ## Distractors — the anti-guessing mechanism
 

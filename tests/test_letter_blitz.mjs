@@ -13,6 +13,10 @@
 //   2. it flashes and masks like the main loop. A side-by-side matching task
 //      would be solvable by comparing shapes without identifying a letter;
 //   3. scoring lands in L.lp and leaves the reading record alone.
+//
+// Since the hold-on-miss change a wrong answer waits for the continue button
+// instead of a timer, so the driver below presses it. Without that this test
+// stalls after the first miss and quietly stops exercising the round.
 import { JSDOM } from "jsdom";
 import { readFileSync } from "fs";
 
@@ -81,7 +85,7 @@ console.log("Bett anchor shown:", anchor);
 if (anchor) { tap(window, btns(window).find((b) => b.textContent.trim() === "\u25B6")); await sleep(150); }
 
 // the item must be masked by the time the tiles are tappable
-let sawShow = false, sawMask = false, answers = 0, seen = new Set();
+let sawShow = false, sawMask = false, answers = 0, held = 0, seen = new Set();
 for (let q = 0; q < 15; q++) {
   for (let k = 0; k < 130; k++) {
     const t = tiles(window);
@@ -95,10 +99,14 @@ for (let q = 0; q < 15; q++) {
   if (t.length !== 2) break;
   t.forEach((b) => seen.add(b.textContent.trim()));
   tap(window, t[0]); answers++;
-  await sleep(1800);
+  await sleep(400);
+  // a miss holds the screen; the only "▶" in a round is continue
+  const cont = btns(window).find((b) => b.textContent.trim() === "\u25B6");
+  if (cont) { held++; tap(window, cont); }
+  await sleep(500);
   if (/\d+ \/ \d+/.test(body(window))) break;
 }
-console.log("answers given:", answers, "| two tiles every time:", true);
+console.log("answers given:", answers, "| misses that held for a tap:", held);
 console.log("item was masked before the tiles armed:", sawMask);
 const opts = [...seen];
 const singles = opts.filter((o) => o.length === 1).length;
@@ -120,7 +128,8 @@ console.log("uncaught errors:", errs.length);
 check("no launcher while the pair is below threshold", !quietLauncher);
 check("launcher appears, labelled with the pair, once above it", !!launcher);
 check("Bett anchor precedes a b/d round", anchor);
-check("round accepts answers", answers >= 4);
+check("round accepts answers", answers >= 10);
+check("a miss held the round until continue was pressed", held >= 1);
 check("the item is masked before the tiles arm", sawMask);
 check("round covers bare letters and whole words", singles >= 1 && longer >= 1);
 check("scored into L.lp under the pair key", !!(lp.bd && lp.bd.r + lp.bd.wr >= 4));
