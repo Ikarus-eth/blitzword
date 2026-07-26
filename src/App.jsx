@@ -212,6 +212,18 @@ const migrate = (L) => {
     const w = L.words[k];
     if (!w.tn) w.tn = [0, 0, 0];
     if (w.everMastered === undefined) w.everMastered = w.s === 2;
+    /* Seed the rolling window from lifetime counts. Without this an existing
+       save starts with an empty history, every word looks like 100%, and the
+       words that motivated the accuracy floor would sail through the gate once
+       more before enough evidence accumulated to stop them. Order within the
+       seed is arbitrary and never read — only the ratio matters. */
+    if (!w.h) {
+      const att = (w.r || 0) + (w.wr || 0);
+      if (att >= 3) {
+        const ones = Math.round((w.r / att) * HIST_N);
+        w.h = [...Array(HIST_N)].map((_, i) => (i < ones ? 1 : 0));
+      } else w.h = [];
+    }
   });
   if (!L.days) L.days = {};
   if (typeof L.coins !== "number") L.coins = 0;
@@ -221,6 +233,41 @@ const migrate = (L) => {
 const tierOf = (d) => (d <= 500 ? 2 : d <= 1500 ? 1 : 0);
 const tiOf = (tn) => (tn[2] >= 2 ? 2 : tn[1] >= 2 ? 1 : tn[0] >= 2 ? 0 : -1);
 const isHot = (ws) => ws && ws.s === 1 && ws.cc >= 3;   // mastered pending 2nd day
+
+/* ---- rolling per-word accuracy: `ws.h`, last HIST_N answers as 1/0 ----------
+   Why this exists. The Flüssig gate was "3 correct in a row on 2 different
+   days", justified by a random guesser clearing 3-in-a-row only ~1.6% of the
+   time. That maths is right for a guesser and wrong for a partial learner: a
+   child who reads a word correctly 40% of the time clears the same bar ~6% of
+   the time per window, and with re-queuing he gets dozens of windows across two
+   days. Real exports showed 20 of 70 Flüssig words sitting below 70% lifetime
+   accuracy, one of them at 39%. Those words then took spaced-review intervals
+   and stopped coming back.
+   Flüssig is defined in DESIGN.md as "accuracy achieved". The floor below makes
+   that claim true rather than changing what the level means. Streak still gates
+   *when* the check happens; accuracy gates whether it passes.                  */
+const HIST_N = 10;
+const MASTER_ACC = 0.8;    // recent accuracy needed to enter Flüssig
+const REACH_ACC = 0.7;     // recent accuracy needed to unlock the next level
+const REACH_MIN_N = 15;    // ...but only once a level has this many answers logged
+const recentAcc = (ws) => {
+  const h = ws && ws.h;
+  if (!h || !h.length) return 1;   // no history yet — streak alone decides, as before
+  let s = 0; for (const x of h) s += x;
+  return s / h.length;
+};
+const pushHist = (ws, ok) => {
+  ws.h = [...(ws.h || []), ok ? 1 : 0].slice(-HIST_N);
+};
+/* accuracy across a whole level, pooled over the per-word windows */
+function levelAcc(L, lvl) {
+  let n = 0, hit = 0;
+  lvl.forEach((e) => {
+    const ws = L.words[e[0]];
+    if (ws && ws.h && ws.h.length) { n += ws.h.length; for (const x of ws.h) hit += x; }
+  });
+  return n >= REACH_MIN_N ? hit / n : null;   // null = too little evidence to block on
+}
 
 /* Graduated mastery, not a single flag — based on Precision Teaching's
    accuracy+fluency distinction and the RESA framework (Retention,
@@ -337,7 +384,13 @@ function starLevel(L, list) {
   }
   return u;
 }
-/* reach level: practice-pool gate — ≥70% mastered OR hot (achievable day 1) */
+/* reach level: practice-pool gate — ≥70% mastered OR hot (achievable day 1),
+   AND the level is actually being read correctly.
+   The count condition alone let three levels open in four days while accuracy
+   fell from 75% to 59%: words qualify as "hot" on a streak, the pool grows, and
+   the earlier level never consolidates. The accuracy condition only engages
+   after REACH_MIN_N answers exist in that level, so it cannot reproduce the old
+   failure where day 1 was mathematically incapable of unlocking anything. */
 function reachLevel(L, list) {
   let u = 1;
   for (let i = 0; i < list.length - 1; i++) {
@@ -345,9 +398,24 @@ function reachLevel(L, list) {
       const ws = L.words[e[0]];
       return ws && (ws.s === 2 || isHot(ws));
     }).length;
-    if (m >= Math.ceil(list[i].length * 0.7)) u = i + 2; else break;
+    if (m < Math.ceil(list[i].length * 0.7)) break;
+    const a = levelAcc(L, list[i]);
+    if (a !== null && a < REACH_ACC) break;
+    u = i + 2;
   }
   return u;
+}
+/* why the pool stopped growing — for the parent dashboard only */
+function reachBlock(L, list) {
+  const i = reachLevel(L, list) - 1;
+  if (i >= list.length - 1) return null;
+  const m = list[i].filter((e) => {
+    const ws = L.words[e[0]];
+    return ws && (ws.s === 2 || isHot(ws));
+  }).length;
+  if (m < Math.ceil(list[i].length * 0.7)) return null;   // held by count, the original rule
+  const a = levelAcc(L, list[i]);
+  return a !== null && a < REACH_ACC ? { lvl: i + 1, acc: a } : null;
 }
 
 function buildQueue(L, list) {
@@ -404,6 +472,111 @@ const isGoldLevel = (L, lvl) => lvl.every((e) => {
   const ws = L.words[e[0]];
   return ws && ws.s === 2 && ws.tn && tiOf(ws.tn) === 2;
 });
+/* --------------------------- Vokal-Blitz ---------------------------------
+   A separate exercise, deliberately not a change to the core loop. DESIGN.md
+   says this is not a phonics app and the reading loop stays exactly that.
+   This mode exists because a real export showed 28% of all wrong tiles were
+   vowel-only swaps with the consonant frame intact — nicht→necht, von→vun,
+   Buch→Boch, kann→kenn. The consonant skeleton is being read and the vowel
+   guessed. In English that half-works. In German the vowel carries full
+   information and cannot be inferred from the frame, so it needs training.
+
+   The word is *heard*, not flashed: the question is "which vowel was in the
+   word you just heard", a grapheme-identity task rather than a speed task, so
+   there is no fixation dot, no mask and no speed tier. Results live in
+   `ws.vk` and never touch s / cc / iv / due / h — a different skill must not
+   move the reading schedule or contaminate the reading accuracy figures.
+
+   No colour cue on the blank. Colour-coding the vowel would make the tile
+   choice solvable without reading the letter, and learners cued during
+   practice but not at test do worse than learners never cued at all. Colour
+   appears only in the feedback, after the answer is locked in.              */
+const VUNIT = ["ei", "ie", "eu", "äu", "au", "aa", "ee", "oo"];
+const VALT = {
+  a: ["e", "o", "ä"], e: ["a", "i", "ä"], i: ["e", "ü", "ie"], o: ["u", "a", "ö"],
+  u: ["o", "ü", "a"], ä: ["a", "e", "ö"], ö: ["o", "ü", "e"], ü: ["u", "i", "ö"],
+  y: ["i", "ü", "e"],
+  ei: ["ie", "eu", "ai"], ie: ["ei", "i", "ü"], eu: ["äu", "au", "ei"],
+  äu: ["eu", "au", "ai"], au: ["eu", "ou", "o"], aa: ["a", "o", "ah"],
+  ee: ["e", "ie", "eh"], oo: ["o", "u", "oh"]
+};
+/* every vowel position in a word; digraphs (ei, au, ie…) stay whole so the
+   child is never asked to pick one half of a sound */
+function vowelSlots(word, lang) {
+  const V = VOWELS[lang], out = [];
+  for (let i = 0; i < word.length; i++) {
+    const two = word.slice(i, i + 2).toLowerCase();
+    if (VUNIT.includes(two)) { out.push({ i, len: 2, unit: two }); i++; continue; }
+    if (V.includes(word[i].toLowerCase())) out.push({ i, len: 1, unit: word[i].toLowerCase() });
+  }
+  return out;
+}
+const fillSlot = (word, slot, unit) => word.slice(0, slot.i) + unit + word.slice(slot.i + slot.len);
+/* did this wrong tile differ from its target by a vowel and nothing else? */
+function vowelOnlyMiss(target, chosen, lang) {
+  if (target.length !== chosen.length) return false;
+  const V = VOWELS[lang];
+  let d = 0, isV = false;
+  for (let i = 0; i < target.length; i++) {
+    const a = target[i].toLowerCase(), b = chosen[i].toLowerCase();
+    if (a === b) continue;
+    d++; isV = V.includes(a) && V.includes(b);
+  }
+  return d === 1 && isV;
+}
+/* one question: word, which slot is blanked, three tiles. Foils that would
+   spell a real word from the curriculum are dropped, same rule as fakeWord. */
+function vowelItem(word, lang) {
+  const slots = vowelSlots(word, lang);
+  if (!slots.length) return null;
+  const slot = slots[Math.floor(Math.random() * slots.length)];
+  const alts = (VALT[slot.unit] || []).filter((u) => {
+    if (u === slot.unit) return false;
+    const filled = fillSlot(word, slot, u).toLowerCase();
+    return filled !== word.toLowerCase() && !REAL[lang].has(filled);
+  });
+  if (!alts.length) return null;
+  return { word, slot, opts: shuffle([slot.unit, ...shuffle(alts).slice(0, 2)]) };
+}
+function buildVowelQueue(L, list, lang, n) {
+  const reach = reachLevel(L, list);
+  const bag = [];
+  list.slice(0, reach).forEach((lvl) => lvl.forEach((e) => {
+    const word = e[0], ws = L.words[word];
+    if (!vowelSlots(word, lang).length) return;
+    let w = 1;
+    Object.entries((ws && ws.mx) || {}).forEach(([c, k]) => {
+      if (vowelOnlyMiss(word, c, lang)) w += 4 * k;      // he has actually missed this vowel
+    });
+    if (ws && ws.vk) w += 2 * (ws.vk.wr || 0);
+    bag.push({ word, w });
+  }));
+  const out = [];
+  while (bag.length && out.length < n) {
+    let total = 0; for (const x of bag) total += x.w;
+    let r = Math.random() * total, k = 0;
+    while (k < bag.length - 1 && (r -= bag[k].w) > 0) k++;
+    const it = vowelItem(bag[k].word, lang);
+    bag.splice(k, 1);
+    if (it) out.push(it);
+  }
+  return out;
+}
+const VOWEL_N = 12;
+
+/* Extra letter spacing on everything he has to read.
+   Zorzi et al. (PNAS 2012) improved reading in dyslexic children on the fly,
+   with no training at all, purely by widening inter-letter space — their
+   manipulation was +2.5 pt on 14 pt, roughly what 0.14em gives here. Wider
+   spacing reduces crowding between neighbouring letters, which is the step
+   that has to succeed before a letter can be identified at all. It is the one
+   typographic change with evidence behind it: the purpose-built dyslexia fonts
+   (Dyslexie, OpenDyslexic) repeatedly show no benefit, and the single study
+   that found one traced it to that font's spacing rather than its letterforms.
+   Relevant here because b/d and m/n are 36 of his errors and both pairs are
+   decided by fine detail at the letter's edge. */
+const TRACK = "0.14em";
+
 function trimDays(days) {
   const ks = Object.keys(days).sort();
   while (ks.length > 60) delete days[ks.shift()];
@@ -448,6 +621,61 @@ function letterDiffs(target, chosen) {
 }
 /* aggregates every logged wrong-tile choice into word-pair and
    letter-pair (bidirectional) confusion tallies */
+/* ---- what kind of mistake was that? ------------------------------------
+   Four mechanisms, four different fixes, and the app was scoring them
+   identically. From a real export of 208 errors:
+     geraten  85 (41%)  chose another real word — sieht->siegt, mein->nein
+     Vokal    59 (28%)  consonant frame intact, vowel wrong — nicht->necht
+     Form     36 (17%)  stem-and-bowl letters — der->ber, kann->kamn
+     Klang    16 (8%)   word-final devoicing — ist->isd, Tag->Tak
+   The last one is not a reading failure at all: German neutralises /d/ and /t/
+   word-finally, so `isd` and `ist` are homophones and no amount of sounding out
+   separates them. It needs Verlängern (Tag -> Tage), not more flash practice.
+   Grouping it with der->ber hides that.                                     */
+const FORM_PAIRS = ["bd", "mn", "pq", "iü", "uü", "oö", "aä", "nm"].map((p) => p.split("").sort().join(""));
+const VOICE_PAIRS = ["dt", "bp", "gk", "sz", "fv"].map((p) => p.split("").sort().join(""));
+const MISS_KINDS = {
+  guess: { key: "guess", icon: "💭", de: "geraten", en: "guessed" },
+  vowel: { key: "vowel", icon: "🅰", de: "Vokal", en: "vowel" },
+  form: { key: "form", icon: "🔤", de: "sieht ähnlich", en: "looks alike" },
+  sound: { key: "sound", icon: "🔊", de: "klingt gleich", en: "sounds alike" },
+  other: { key: "other", icon: "❓", de: "anderes", en: "other" }
+};
+function classifyMiss(target, chosen, lang) {
+  if (REAL[lang].has(chosen.toLowerCase())) return "guess";   // a real word he could have been aiming at
+  const t = target.toLowerCase(), c = chosen.toLowerCase();
+  if (t.length !== c.length) return "other";
+  const diff = [];
+  for (let i = 0; i < t.length; i++) if (t[i] !== c[i]) diff.push([t[i], c[i], i]);
+  if (diff.length !== 1) return "other";
+  const [a, b, i] = diff[0];
+  const pair = [a, b].sort().join("");
+  const V = VOWELS[lang];
+  /* word-final voicing first: in German it is genuinely unhearable, so it
+     outranks the fact that d/t also look a little alike */
+  if (VOICE_PAIRS.includes(pair) && i === t.length - 1) return "sound";
+  if (FORM_PAIRS.includes(pair)) return "form";
+  if (V.includes(a) && V.includes(b)) return "vowel";
+  if (VOICE_PAIRS.includes(pair)) return "sound";
+  return "other";
+}
+function missKinds(L, lang) {
+  const tally = {}, egs = {};
+  Object.keys(MISS_KINDS).forEach((k) => { tally[k] = 0; egs[k] = []; });
+  Object.keys(L.words).forEach((word) => {
+    const mx = L.words[word].mx;
+    if (!mx) return;
+    Object.keys(mx).forEach((chosen) => {
+      const k = classifyMiss(word, chosen, lang);
+      tally[k] += mx[chosen];
+      egs[k].push({ target: word, chosen, count: mx[chosen] });
+    });
+  });
+  Object.keys(egs).forEach((k) => egs[k].sort((a, b) => b.count - a.count));
+  const total = Object.values(tally).reduce((a, b) => a + b, 0);
+  return { tally, egs, total };
+}
+
 function analyzeConfusions(L) {
   const letters = {}, pairs = [];
   Object.keys(L.words).forEach((word) => {
@@ -1118,7 +1346,12 @@ function UnlockToast({ queue, onDone, lang }) {
 
 /* ------------------------------ App ----------------------------- */
 export default function App() {
-  const [phase, setPhase] = useState("load");   // load|home|play|chunkend|levelup|gold|stack|parent|achievements
+  const [phase, setPhase] = useState("load");   // load|home|play|chunkend|levelup|gold|stack|parent|achievements|vowel|vdone
+  const [vq, setVq] = useState([]);             // Vokal-Blitz round
+  const [vi, setVi] = useState(0);
+  const [vfb, setVfb] = useState(null);
+  const vScore = useRef({ r: 0, n: 0 });
+  const vAt = useRef(0);
   const [lang, setLang] = useState("de");
   const [speed, setSpeed] = useState(3);
   const [snd, setSnd] = useState(true);
@@ -1272,6 +1505,53 @@ export default function App() {
   const startPlay = () => { initAudio(); modeRef.current = { t: "normal", lvl: 0 }; flush(); startChunk(); };
   const startTurbo = (li) => { initAudio(); modeRef.current = { t: "turbo", lvl: li }; flush(); startChunk(); };
 
+  /* ---- Vokal-Blitz ---- */
+  const sayWord = (word) => {
+    if (sndRef.current) speak(word, langRef.current, voiceURIsRef.current, speechRateRef.current, speechPitchRef.current);
+  };
+  const startVowel = () => {
+    initAudio();
+    const lg = langRef.current;
+    const q = buildVowelQueue(dataRef.current[lg], LISTS[lg], lg, VOWEL_N);
+    if (!q.length) return;
+    vScore.current = { r: 0, n: 0 };
+    vAt.current = Date.now();
+    setVq(q); setVi(0); setVfb(null); setPhase("vowel");
+    setTimeout(() => sayWord(q[0].word), 350);
+  };
+  const vowelAnswer = (opt) => {
+    if (vfb) return;
+    const item = vq[vi];
+    const ok = opt === item.slot.unit;
+    const lg = langRef.current;
+    const prev = dataRef.current;
+    const L = clone(prev[lg]);
+    const ws = L.words[item.word] ||
+      (L.words[item.word] = { s: 0, cc: 0, d: [], iv: 0, due: null, r: 0, wr: 0, tn: [0, 0, 0], h: [], everMastered: false });
+    const vk = ws.vk || (ws.vk = { r: 0, wr: 0 });
+    if (ok) { vk.r++; L.coins += 1; }
+    else { vk.wr++; vk.mx = vk.mx || {}; vk.mx[opt] = (vk.mx[opt] || 0) + 1; }
+    /* counts toward the daily minute goal like any other answered question —
+       "active time" is the sum of response windows, never wall clock */
+    const day = L.days[tISO()] || (L.days[tISO()] = { s: 0, b1: 0, b2: 0 });
+    day.s += Math.min((Date.now() - vAt.current) / 1000, 12);
+    trimDays(L.days);
+    const newData = { ...prev, [lg]: L };
+    dataRef.current = newData;
+    setData(newData);
+    scheduleSave(lg);
+    vScore.current = { r: vScore.current.r + (ok ? 1 : 0), n: vScore.current.n + 1 };
+    if (sndRef.current) { ok ? sfx.ok() : sfx.no(); }
+    setVfb({ ok, chosen: opt });
+    sayWord(item.word);
+    setTimeout(() => {
+      if (vi + 1 >= vq.length) { setPhase("vdone"); return; }
+      vAt.current = Date.now();
+      setVi(vi + 1); setVfb(null);
+      sayWord(vq[vi + 1].word);
+    }, 1500);
+  };
+
   useEffect(() => {
     if (phase !== "play") return;
     let t;
@@ -1337,6 +1617,11 @@ export default function App() {
     if (!ws.tn) ws.tn = [0, 0, 0];
     let earned = 0, mastered = false;
 
+    /* Turbo answers stay out of the window. Turbo is forced ≤500 ms and DESIGN
+       already rules that its failures must not demote — letting them depress
+       the accuracy floor would demote by the back door. */
+    if (!turbo) pushHist(ws, ok);
+
     if (ok) {
       ws.r++;
       const t = tierOf(DUR[eff]);                        // speed-tier evidence
@@ -1350,7 +1635,10 @@ export default function App() {
       } else {                                           // learning
         ws.s = 1; ws.cc++;
         if (!ws.d.includes(today)) { ws.d.push(today); if (ws.d.length > 5) ws.d = ws.d.slice(-5); }
-        if (ws.cc >= 3 && ws.d.length >= 2) {            // mastery gate
+        /* streak + two days + recent accuracy. The first two say he can do it
+           now and could do it yesterday; the third says it is not a lucky run
+           inside a word he mostly misses. */
+        if (ws.cc >= 3 && ws.d.length >= 2 && recentAcc(ws) >= MASTER_ACC) {
           ws.s = 2; ws.iv = 0; ws.due = plusDays(IVL[0]); ws.everMastered = true; mastered = true;
         }
       }
@@ -1503,6 +1791,15 @@ export default function App() {
           alignItems: "center", justifyContent: "center", paddingLeft: 8
         }}>▶</button>
 
+        {/* Vokal-Blitz. Its own label is the exercise: three vowels, no icon to
+            decode. Smaller and off to the side because reading practice stays
+            the default action. */}
+        <button onClick={startVowel} className="bigbtn" style={{
+          ...cardSt, position: "absolute", bottom: 22, right: 62, width: 88, height: 88,
+          borderRadius: "50%", fontSize: 27, fontWeight: 900, letterSpacing: 1,
+          color: C.blue, cursor: "pointer"
+        }}>a e i</button>
+
         <button onClick={() => openAch("home")} className="bigbtn" style={{
           position: "absolute", bottom: 12, left: 12, width: 56, height: 56, fontSize: 26,
           ...cardSt, borderRadius: 18, cursor: "pointer"
@@ -1522,6 +1819,94 @@ export default function App() {
           color: "rgba(34,49,74,.32)", fontSize: 17, cursor: "pointer"
         }}>⚙</button>
         <UnlockToast queue={unlockQueue} onDone={dismissToast} lang={lang} />
+      </div>
+    );
+  }
+
+  /* -------------------------- Vokal-Blitz -------------------------- */
+  if (phase === "vowel" && vq[vi]) {
+    const item = vq[vi];
+    const { word, slot } = item;
+    const pre = word.slice(0, slot.i), post = word.slice(slot.i + slot.len);
+    return (
+      <div className="bw" style={{ ...wrap, padding: "10px 14px 14px", gap: 12 }}>
+        <style>{css}</style>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <button onClick={goHome} className="bigbtn" style={{ ...cardSt, width: 58, height: 58, fontSize: 26, borderRadius: 18, cursor: "pointer" }}>🏠</button>
+          <div style={{ ...cardSt, padding: "8px 16px", fontSize: 21, fontWeight: 800, borderRadius: 18 }}>a e i</div>
+          <div style={{ flex: 1, height: 10, background: "#D6E4F2", borderRadius: 6, overflow: "hidden", margin: "0 4px" }}>
+            <div style={{ width: `${Math.round((vi / vq.length) * 100)}%`, height: "100%", background: C.blue, borderRadius: 6, transition: "width .4s" }} />
+          </div>
+          <div style={{ ...cardSt, padding: "8px 16px", fontSize: 21, fontWeight: 800, borderRadius: 18, color: "#8A5A00", background: "#FFF3D6" }}>
+            🪙 {L.coins}
+          </div>
+        </div>
+
+        <div style={{
+          ...cardSt, alignSelf: "center", width: "min(94vw,720px)",
+          height: "clamp(170px,32vh,250px)", display: "flex", alignItems: "center",
+          justifyContent: "center", gap: 18, position: "relative"
+        }}>
+          <span style={{ fontSize: "clamp(52px,11vw,92px)", fontWeight: 800, letterSpacing: TRACK }}>
+            {pre}
+            {vfb
+              /* colour only here, once the answer is locked in */
+              ? <span style={{ color: vfb.ok ? C.green : C.red }}>{vfb.ok ? slot.unit : vfb.chosen}</span>
+              : <span style={{ color: C.mask }}>▮</span>}
+            {post}
+          </span>
+          {vfb && !vfb.ok && (
+            <span style={{ fontSize: "clamp(34px,7vw,58px)", fontWeight: 800, letterSpacing: TRACK, color: C.green }}>
+              → {pre}<span style={{ textDecoration: "underline" }}>{slot.unit}</span>{post}
+            </span>
+          )}
+          <button onClick={() => sayWord(word)} className="bigbtn" style={{
+            position: "absolute", top: 10, right: 12, width: 56, height: 56, fontSize: 26,
+            ...cardSt, borderRadius: 18, cursor: "pointer"
+          }}>🔊</button>
+        </div>
+
+        <div style={{
+          alignSelf: "center", width: "min(94vw,760px)", flex: 1,
+          display: "grid", gridTemplateColumns: `repeat(${item.opts.length},1fr)`, gap: 14,
+          alignContent: "center", pointerEvents: vfb ? "none" : "auto"
+        }}>
+          {item.opts.map((o, i) => {
+            let bg = C.card, bc = C.ink, col = C.ink, anim = "none";
+            if (vfb) {
+              if (o === slot.unit) { bg = C.green; col = "#fff"; }
+              else if (o === vfb.chosen) { bg = C.red; col = "#fff"; anim = "bwShake .4s ease"; }
+              else { bg = "#F2F6FA"; col = "#9FB0C2"; }
+            }
+            return (
+              <button key={i} className="tile" onClick={() => vowelAnswer(o)} style={{
+                ...cardSt, background: bg, borderColor: bc, color: col,
+                minHeight: 120, fontSize: "clamp(38px,7vw,62px)", fontWeight: 800,
+                cursor: "pointer", animation: anim, fontFamily: "inherit"
+              }}>{o}</button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  if (phase === "vdone") {
+    const { r, n } = vScore.current;
+    return (
+      <div className="bw" style={{ ...wrap, alignItems: "center", justifyContent: "center", gap: 22, padding: 16 }}>
+        <style>{css}</style>
+        <div style={{ fontSize: 66 }}>{r === n ? "🏆" : r * 2 >= n ? "👏" : "💪"}</div>
+        <div style={{ fontSize: 40, fontWeight: 900 }}>{r} / {n}</div>
+        <div style={{ display: "flex", gap: 16 }}>
+          <button onClick={startVowel} className="bigbtn" style={{
+            ...cardSt, width: 104, height: 104, borderRadius: "50%", background: C.blue,
+            color: "#fff", fontSize: 40, cursor: "pointer"
+          }}>↻</button>
+          <button onClick={goHome} className="bigbtn" style={{
+            ...cardSt, width: 104, height: 104, borderRadius: "50%", fontSize: 40, cursor: "pointer"
+          }}>🏠</button>
+        </div>
       </div>
     );
   }
@@ -1571,6 +1956,7 @@ export default function App() {
     const PL = data[dashLang];
     const plist = LISTS[dashLang];
     const { pairs, letterList } = analyzeConfusions(PL);
+    const missSplit = missKinds(PL, dashLang);
     const lvlStats = levelStats(PL, plist);
     const tiers = tierCounts(PL);
     const lvlCounts = levelCounts(PL, plist);
@@ -1675,6 +2061,21 @@ export default function App() {
           <Stat label="Münzen" value={PL.coins} />
           <Stat label="Serie" value={`${calcStreak(PL.days)} 🔥`} />
         </div>
+
+        {/* A held level is a decision, not a stall — say so, or it reads as a bug */}
+        {(() => {
+          const b = reachBlock(PL, plist);
+          if (!b) return null;
+          return (
+            <div style={{
+              ...cardSt, padding: "10px 14px", fontSize: 14, fontWeight: 700,
+              background: "#FFF3D6", color: "#8A5A00", borderColor: "#E28C1E"
+            }}>
+              ⏸ Stufe {b.lvl + 1} wartet — Stufe {b.lvl} liegt bei {Math.round(b.acc * 100)}%
+              (nötig {Math.round(REACH_ACC * 100)}%). Neue Wörter kommen dazu, sobald die alten sitzen.
+            </div>
+          );
+        })()}
 
         <div style={{ ...cardSt, padding: 14 }}>
           <div style={{ fontWeight: 800, marginBottom: 4, fontSize: 15 }}>Mastery-Stufen</div>
@@ -1815,6 +2216,42 @@ export default function App() {
                   {p.target} → {p.chosen} ({p.count}×)
                 </span>
               ))}
+            </div>
+          )}
+        </div>
+
+        {/* Fehlerarten: the same 208 errors split by mechanism, because each
+            one has a different remedy and the raw letter tally hides that. */}
+        <div style={{ ...cardSt, padding: 14 }}>
+          <div style={{ fontWeight: 800, marginBottom: 8, fontSize: 15 }}>Fehlerarten</div>
+          {missSplit.total === 0 ? (
+            <div style={{ fontSize: 13, color: "#8CA0B5" }}>Keine.</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+              {["guess", "vowel", "form", "sound", "other"]
+                .filter((k) => missSplit.tally[k] > 0)
+                .map((k) => {
+                  const n = missSplit.tally[k], pct = Math.round((n / missSplit.total) * 100);
+                  const eg = missSplit.egs[k].slice(0, 3).map((e) => `${e.target}→${e.chosen}`).join("  ");
+                  const col = { guess: "#B48CD6", vowel: C.blue, form: "#E28C1E", sound: "#3FA98A", other: "#9FB0C2" }[k];
+                  return (
+                    <div key={k} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <span style={{ fontSize: 17, width: 24, textAlign: "center" }}>{MISS_KINDS[k].icon}</span>
+                      <span style={{ fontSize: 13, fontWeight: 800, width: 104 }}>{MISS_KINDS[k][dashLang] || MISS_KINDS[k].de}</span>
+                      <span style={{ fontSize: 13, fontWeight: 800, width: 56, color: "#5B6C82" }}>{n} · {pct}%</span>
+                      <div style={{ flex: "0 0 84px", height: 9, background: "#E4ECF3", borderRadius: 5, overflow: "hidden" }}>
+                        <div style={{ width: `${pct}%`, height: "100%", background: col, borderRadius: 5 }} />
+                      </div>
+                      <span style={{ fontSize: 12, color: "#8CA0B5", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{eg}</span>
+                    </div>
+                  );
+                })}
+              <div style={{ fontSize: 11.5, color: "#8CA0B5", lineHeight: 1.5, marginTop: 2 }}>
+                🔊 <b>klingt gleich</b>: im Deutschen am Wortende nicht hörbar (ist/isd, Tag/Tak).
+                Hilft nur Verlängern — Tag → Tage, Haus → Häuser, gibt → geben. Kein Lesefehler.<br />
+                🔤 <b>sieht ähnlich</b>: Buchstabenform (b/d, m/n). 🅰 <b>Vokal</b>: Gerüst richtig, Selbstlaut geraten.
+                💭 <b>geraten</b>: ein anderes echtes Wort gewählt.
+              </div>
             </div>
           )}
         </div>
@@ -2118,14 +2555,14 @@ export default function App() {
           <div style={{ width: 20, height: 20, borderRadius: "50%", background: C.ink, animation: "bwPulse .5s ease-in-out infinite" }} />
         )}
         {stage === "word" && (
-          <span style={{ fontSize: "clamp(62px,13vw,108px)", fontWeight: 800, letterSpacing: 1 }}>{target}</span>
+          <span style={{ fontSize: "clamp(62px,13vw,108px)", fontWeight: 800, letterSpacing: TRACK }}>{target}</span>
         )}
         {stage === "answer" && (
           <span style={{ fontSize: 64, color: C.mask, letterSpacing: 8 }}>▮▮▮▮</span>
         )}
         {stage === "fb" && fb && (
           <span style={{
-            fontSize: "clamp(56px,11vw,92px)", fontWeight: 800,
+            fontSize: "clamp(56px,11vw,92px)", fontWeight: 800, letterSpacing: TRACK,
             color: fb.ok ? C.green : C.ink, animation: "bwPop .35s ease-out"
           }}>
             {fb.ok ? "✓ " : ""}{target}{fb.mastered ? (modeRef.current.t === "turbo" ? " 🚀" : " ⭐") : ""}
@@ -2157,7 +2594,7 @@ export default function App() {
           return (
             <button key={i} className="tile" onClick={() => answer(w)} style={{
               ...cardSt, background: bg, borderColor: bc, color: col,
-              minHeight: 108, fontSize: "clamp(31px,5.8vw,48px)", fontWeight: 700,
+              minHeight: 108, fontSize: "clamp(31px,5.8vw,48px)", fontWeight: 700, letterSpacing: TRACK,
               cursor: "pointer", animation: anim,
               fontFamily: "inherit", padding: "10px 8px"
             }}>{w}</button>

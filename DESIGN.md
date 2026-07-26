@@ -66,6 +66,20 @@ Two points that are easy to get wrong:
 chance ~1.6% of the time. Requiring a second day makes luck negligible and forces
 overnight consolidation rather than short-term echo.
 
+**Why a third condition — recent accuracy ≥80%.** The 1.6% figure is right for a
+*random guesser* and wrong for a partial learner. A word read correctly ~40% of
+the time clears 3-in-a-row about 6% of the time per window, and a missed word is
+re-queued 3–6 items later, so a session hands out dozens of windows. A real
+export had **20 of 70 Flüssig words below 70% lifetime accuracy, one at 39%** —
+each then took a spaced-review interval and stopped coming back. Every word
+record therefore carries `h`, the last 10 answers as 1/0, and Flüssig now needs
+streak **and** two days **and** ≥80% over that window. This does not redefine the
+level: DESIGN already called Flüssig "accuracy achieved", and the floor is what
+makes that sentence true. Existing saves get `h` seeded from lifetime `r`/`wr` in
+`migrate`, otherwise the words that motivated the fix would sail through once
+more before enough history existed to stop them. Turbo answers are excluded —
+turbo failures must not demote, so they must not depress the floor either.
+
 ## Spaced repetition
 
 Intervals **3 → 7 → 14 → 30 days**. A correct review advances one step; a miss
@@ -78,14 +92,36 @@ was tried and made every session open with a wall of previous failures.
 ## Two separate level gates — deliberate
 
 - **Reach level** (which words enter practice): unlocks at **≥70%** of the previous
-  level being mastered *or* "hot" (3 consecutive correct, awaiting its second day).
-  Reachable inside one session.
+  level being mastered *or* "hot" (3 consecutive correct, awaiting its second day),
+  **and** that level's pooled recent accuracy ≥70%. The count condition alone let
+  three levels open in four days while accuracy fell from 75% to 59% — words
+  qualify as hot on a streak, the pool grows, the earlier level never settles. The
+  accuracy condition only engages once ≥15 answers exist in the level, so day 1
+  can still unlock and the failure below is not reintroduced. A held level is
+  shown and explained in the parent dashboard; silently refusing to grow the pool
+  reads as a bug.
 - **Star level** (celebration + the ⭐ badge): **≥90% fully mastered**, which needs
   two calendar days minimum.
 
 They are separate because gating practice on full mastery made day 1 mathematically
 incapable of unlocking anything — 20 words cycled endlessly and felt like five. The
 loose gate supplies variety fast; the strict gate keeps the celebration meaningful.
+
+## Typography
+
+Body text and every word the child reads carry extra letter spacing (`TRACK`,
+0.14em). Zorzi et al. (PNAS 2012) improved reading in dyslexic children *on the
+fly, with no training*, purely by widening inter-letter space; their manipulation
+was +2.5 pt on 14 pt text. Wider spacing reduces crowding between neighbouring
+letters, and letter identification is the step that has to succeed before word
+recognition can start.
+
+This is the only typographic change with evidence behind it. **Do not switch to a
+"dyslexia font."** Dyslexie and OpenDyslexic have repeatedly shown no benefit to
+reading rate or accuracy (Kuster et al. 2018, n=170; Wery & Diliberto 2017), and
+the one study that did find a benefit traced it to that font's spacing rather
+than its letterforms. Keep a double-storey `a` — a single-storey form sits much
+closer to `o`, and a/e and a/o are among the most confused pairs in the data.
 
 ## Sessions
 
@@ -99,6 +135,38 @@ mastered words, a "new words unlocked" banner, and the speed nudge.
 **Adaptive speed nudge:** ≥90% accuracy over ≥8 answers suggests one step faster;
 <60% suggests one step slower. One tap applies it. A 7-year-old will not calibrate
 the slider himself, and automaticity training works just below the ceiling.
+
+## Vokal-Blitz — a second exercise, not a change to the core loop
+
+The reading loop above stays exactly what it is. This is a separate mode behind
+its own button.
+
+**Why it exists.** 28% of all wrong tiles in a real export were vowel-only swaps
+with the consonant frame intact — `nicht→necht`, `von→vun`, `Buch→Boch`,
+`kann→kenn`. The consonant skeleton is being read and the vowel guessed. In
+English that half-works. German vowels carry full information and cannot be
+inferred from the frame, so the vowel needs training directly.
+
+- The word is **heard, not flashed**. The question is "which vowel was in the
+  word you just heard" — grapheme identity, not speed. No fixation dot, no mask,
+  no speed tier.
+- **Digraphs stay whole** (`ei`, `au`, `ie`, `eu`…). Asking a child to pick half
+  of a sound teaches the wrong unit.
+- Foils that would spell a real curriculum word are dropped, same rule as
+  `fakeWord`.
+- The queue weights toward words where he has actually made a vowel-only miss.
+- **Results live in `ws.vk` and never touch `s`/`cc`/`iv`/`due`/`h`.** A different
+  skill must not move the spaced-repetition schedule or feed the two accuracy
+  gates. There is a test that asserts exactly this.
+
+**No colour cue while the question is open.** The blank is a grey block. Colour
+appears only in the feedback, after the answer is locked in. Two reasons: the
+foils are single-vowel substitutions of equal length, so colouring the vowel
+would make every tile solvable by colour-matching without reading a letter — the
+app would be measuring colour discrimination and scoring it as reading. And early
+readers latch onto salient irrelevant cues (Ehri's phases; Pullen & Lane
+recommend single-colour letter sets for this reason), with learners cued during
+practice but not at test performing worst of all.
 
 ## Rewards
 
@@ -169,9 +237,28 @@ sub-80px target in the app so it doesn't invite taps.
 Contains: mastery-level distribution (with the five levels explained inline),
 today's due-review list, the SRS interval distribution, a per-level table, weakest
 words with their most common confusion, **letter-level confusion aggregation**
-(e.g. `a↔e (7×)`, derived by diffing every wrong tile against its target), a 14-day
+(e.g. `a↔e (7×)`, derived by diffing every wrong tile against its target), a
+**Fehlerarten** split, a 14-day
 practice chart, voice settings, and export/import for moving progress between
 devices.
+
+### Fehlerarten — four mechanisms, four remedies
+
+The raw letter tally hides that different errors need different responses, and
+the app was scoring them identically. Every wrong tile is classified:
+
+| kind | meaning | what actually helps |
+|---|---|---|
+| 💭 geraten | chose another real word (`sieht→siegt`) | full decoding, not more speed |
+| 🅰 Vokal | frame right, vowel wrong (`nicht→necht`) | Vokal-Blitz |
+| 🔤 sieht ähnlich | letterform (`der→ber`, `kann→kamn`) | letter-level discrimination |
+| 🔊 klingt gleich | word-final devoicing (`ist→isd`, `Tag→Tak`) | Verlängern |
+
+The last row is the one worth stating plainly: it is **not a reading failure**.
+German neutralises /d/ and /t/ word-finally, so `isd` and `ist` are homophones
+and no amount of sounding out separates them. The remedy is extension —
+`Tag → Tage`, `Haus → Häuser`, `gibt → geben` — and grouping it with `der→ber`
+hides that completely. On the reference export the split was 41 / 26 / 19 / 11 %.
 
 ## Storage
 
