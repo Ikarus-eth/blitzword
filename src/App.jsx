@@ -562,6 +562,52 @@ function buildVowelQueue(L, list, lang, n) {
   }
   return out;
 }
+/* --------------------------- Buchstaben-Blitz -----------------------------
+   b and d are the same shape mirrored; m and n are the same arch once or twice.
+   That is a looking problem, not a reading problem, and the main loop is a bad
+   place to fix it: a b/d contrast turns up in roughly one question in six, so
+   50 reps on the pair would cost ~300 questions. This mode shows nothing else.
+
+   Flash and mask, same mechanic as the main loop, deliberately. A side-by-side
+   matching task would be solvable by comparing shapes without ever identifying
+   a letter — the mask forces him to encode which letter it was. Exposure steps
+   down inside the round (1200 → 800 → 500 ms) and the items get longer, so the
+   difficulty climbs while the pair stays constant.                           */
+const LETTER_N = 15;
+const swapAt = (word, from, to) => {
+  const i = word.toLowerCase().indexOf(from);
+  if (i < 0) return null;
+  const rep = word[i] === word[i].toUpperCase() ? to.toUpperCase() : to;
+  return word.slice(0, i) + rep + word.slice(i + 1);
+};
+function buildLetterQueue(L, list, lang, pair, n) {
+  const { a, b } = pair, items = [];
+  const mk = (show, other) => ({ show, opts: shuffle([show, other]), answer: show });
+  /* 1. bare letters — is this shape an a or a b at all */
+  items.push(mk(a, b), mk(b, a));
+  /* 2. syllables — the shape now sits next to something else */
+  const syl = [];
+  for (const v of "aeiou") { syl.push([a + v, b + v]); syl.push([b + v, a + v]); }
+  shuffle(syl).slice(0, 5).forEach(([s, o]) => items.push(mk(s, o)));
+  /* 3. real words he is learning, against the one-letter pseudo-word */
+  const reach = reachLevel(L, list);
+  const words = [];
+  list.slice(0, reach).forEach((lvl) => lvl.forEach((e) => {
+    const w = e[0], lw = w.toLowerCase();
+    if (lw.includes(a)) { const o = swapAt(w, a, b); if (o) words.push([w, o]); }
+    else if (lw.includes(b)) { const o = swapAt(w, b, a); if (o) words.push([w, o]); }
+  }));
+  /* words he has actually missed on this pair come first */
+  words.sort((x, y) => {
+    const c = (p) => { const ws = L.words[p[0]]; return ws && ws.mx && ws.mx[p[1]] ? ws.mx[p[1]] : 0; };
+    return c(y) - c(x);
+  });
+  const top = words.slice(0, 6), rest = shuffle(words.slice(6));
+  [...top, ...rest].slice(0, n - items.length).forEach(([w, o]) => items.push(mk(w, o)));
+  return items.slice(0, n);
+}
+const letterExposure = (i) => (i < 5 ? 1200 : i < 10 ? 800 : 500);
+
 const VOWEL_N = 12;
 
 /* Extra letter spacing on everything he has to read.
@@ -674,6 +720,23 @@ function missKinds(L, lang) {
   Object.keys(egs).forEach((k) => egs[k].sort((a, b) => b.count - a.count));
   const total = Object.values(tally).reduce((a, b) => a + b, 0);
   return { tally, egs, total };
+}
+
+/* which letterform pairs have earned their own drill?
+   Only shape pairs (b/d, m/n, p/q…) — vowel confusions go to Vokal-Blitz, and
+   word-final devoicing is not a looking problem at all. The threshold exists so
+   this mode is temporary: it appears when a pair is actually costing him
+   answers and disappears once it stops. */
+const LETTER_PAIR_MIN = 8;
+function letterPairsNeedingWork(L, lang) {
+  const { letterList } = analyzeConfusions(L);
+  return letterList
+    .filter((l) => {
+      const k = l.pair.split("↔").sort().join("");
+      return FORM_PAIRS.includes(k) && l.count >= LETTER_PAIR_MIN &&
+        !VOWELS[lang].includes(k[0]) && !VOWELS[lang].includes(k[1]);
+    })
+    .map((l) => ({ a: l.pair.split("↔")[0], b: l.pair.split("↔")[1], count: l.count }));
 }
 
 function analyzeConfusions(L) {
@@ -1352,6 +1415,13 @@ export default function App() {
   const [vfb, setVfb] = useState(null);
   const vScore = useRef({ r: 0, n: 0 });
   const vAt = useRef(0);
+  const [lq, setLq] = useState([]);             // Buchstaben-Blitz round
+  const [li, setLi] = useState(0);
+  const [lstage, setLstage] = useState("fix");  // fix|show|answer|fb
+  const [lfb, setLfb] = useState(null);
+  const [lpair, setLpair] = useState(null);
+  const lScore = useRef({ r: 0, n: 0 });
+  const lAt = useRef(0);
   const [lang, setLang] = useState("de");
   const [speed, setSpeed] = useState(3);
   const [snd, setSnd] = useState(true);
@@ -1473,6 +1543,14 @@ export default function App() {
   }, [phase]);
 
   /* ---- round flow ---- */
+  useEffect(() => {
+    if (phase !== "letters") return;
+    let t;
+    if (lstage === "fix") t = setTimeout(() => setLstage("show"), 400);
+    else if (lstage === "show") t = setTimeout(() => { lAt.current = Date.now(); setLstage("answer"); }, letterExposure(li));
+    return () => clearTimeout(t);
+  }, [phase, lstage, li]);
+
   const effSpeed = () => (modeRef.current.t === "turbo" ? Math.max(speedRef.current, 7) : speedRef.current);
   const nextItem = () => {
     if (idxRef.current >= queueRef.current.length) {
@@ -1502,6 +1580,45 @@ export default function App() {
     setPhase("play");
     nextItem();
   };
+  /* ---- Buchstaben-Blitz ---- */
+  const startLetters = (pair) => {
+    initAudio();
+    const lg = langRef.current;
+    const q = buildLetterQueue(dataRef.current[lg], LISTS[lg], lg, pair, LETTER_N);
+    if (!q.length) return;
+    lScore.current = { r: 0, n: 0 };
+    setLpair(pair); setLq(q); setLi(0); setLfb(null);
+    /* the Bett anchor, b/d only — it is the standard German classroom cue and
+       there is no equivalent worth inventing for the other pairs */
+    setLstage(pair.a + pair.b === "bd" || pair.a + pair.b === "db" ? "anchor" : "fix");
+    setPhase("letters");
+  };
+  const letterAnswer = (opt) => {
+    if (lfb) return;
+    const item = lq[li];
+    const ok = opt === item.answer;
+    const lg = langRef.current;
+    const prev = dataRef.current;
+    const L = clone(prev[lg]);
+    const key = [lpair.a, lpair.b].sort().join("");
+    L.lp = L.lp || {};
+    const rec = L.lp[key] || (L.lp[key] = { r: 0, wr: 0 });
+    if (ok) { rec.r++; L.coins += 1; } else rec.wr++;
+    const day = L.days[tISO()] || (L.days[tISO()] = { s: 0, b1: 0, b2: 0 });
+    day.s += Math.min((Date.now() - lAt.current) / 1000, 12);
+    trimDays(L.days);
+    const newData = { ...prev, [lg]: L };
+    dataRef.current = newData; setData(newData); scheduleSave(lg);
+    lScore.current = { r: lScore.current.r + (ok ? 1 : 0), n: lScore.current.n + 1 };
+    if (sndRef.current) { ok ? sfx.ok() : sfx.no(); }
+    setLfb({ ok, chosen: opt });
+    setLstage("fb");
+    setTimeout(() => {
+      if (li + 1 >= lq.length) { setPhase("ldone"); return; }
+      setLi(li + 1); setLfb(null); setLstage("fix");
+    }, ok ? 850 : 1700);
+  };
+
   const startPlay = () => { initAudio(); modeRef.current = { t: "normal", lvl: 0 }; flush(); startChunk(); };
   const startTurbo = (li) => { initAudio(); modeRef.current = { t: "turbo", lvl: li }; flush(); startChunk(); };
 
@@ -1723,6 +1840,7 @@ export default function App() {
 
   /* ----------------------------- home ----------------------------- */
   if (phase === "home") {
+    const workPairs = letterPairsNeedingWork(L, lang);
     return (
       <div className="bw" style={{ ...wrap, alignItems: "center", justifyContent: "center", gap: "clamp(14px,3vh,26px)", padding: 16, position: "relative" }}>
         <style>{css}</style>
@@ -1800,6 +1918,16 @@ export default function App() {
           color: C.blue, cursor: "pointer"
         }}>a e i</button>
 
+        {/* Buchstaben-Blitz. Appears only while a shape pair is above threshold,
+            labelled with the pair itself so there is nothing to decode. */}
+        {workPairs.length > 0 && (
+          <button onClick={() => startLetters(workPairs[0])} className="bigbtn" style={{
+            ...cardSt, position: "absolute", bottom: 22, left: 62, width: 88, height: 88,
+            borderRadius: "50%", fontSize: 30, fontWeight: 900, letterSpacing: TRACK,
+            color: "#E28C1E", cursor: "pointer"
+          }}>{workPairs[0].a} {workPairs[0].b}</button>
+        )}
+
         <button onClick={() => openAch("home")} className="bigbtn" style={{
           position: "absolute", bottom: 12, left: 12, width: 56, height: 56, fontSize: 26,
           ...cardSt, borderRadius: 18, cursor: "pointer"
@@ -1819,6 +1947,105 @@ export default function App() {
           color: "rgba(34,49,74,.32)", fontSize: 17, cursor: "pointer"
         }}>⚙</button>
         <UnlockToast queue={unlockQueue} onDone={dismissToast} lang={lang} />
+      </div>
+    );
+  }
+
+  /* ------------------------ Buchstaben-Blitz ----------------------- */
+  if (phase === "letters" && lstage === "anchor") {
+    return (
+      <div className="bw" style={{ ...wrap, alignItems: "center", justifyContent: "center", gap: 26, padding: 16 }}>
+        <style>{css}</style>
+        {/* the German classroom cue: b and d are the two ends of a Bett */}
+        <div style={{ display: "flex", alignItems: "flex-end", gap: 4, fontWeight: 900 }}>
+          <span style={{ fontSize: "clamp(70px,14vw,120px)", color: C.blue }}>b</span>
+          <span style={{ fontSize: "clamp(56px,11vw,96px)" }}>🛏</span>
+          <span style={{ fontSize: "clamp(70px,14vw,120px)", color: C.green }}>d</span>
+        </div>
+        <div style={{ fontSize: "clamp(34px,7vw,56px)", fontWeight: 900, letterSpacing: TRACK }}>Bett</div>
+        <button onClick={() => setLstage("fix")} className="bigbtn" style={{
+          width: 112, height: 112, borderRadius: "50%", background: C.green, border: `4px solid ${C.ink}`,
+          boxShadow: "0 8px 0 rgba(34,49,74,.22)", fontSize: 46, color: "#fff", cursor: "pointer"
+        }}>▶</button>
+      </div>
+    );
+  }
+  if (phase === "letters" && lq[li]) {
+    const item = lq[li];
+    return (
+      <div className="bw" style={{ ...wrap, padding: "10px 14px 14px", gap: 12 }}>
+        <style>{css}</style>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <button onClick={goHome} className="bigbtn" style={{ ...cardSt, width: 58, height: 58, fontSize: 26, borderRadius: 18, cursor: "pointer" }}>🏠</button>
+          <div style={{ ...cardSt, padding: "8px 16px", fontSize: 21, fontWeight: 800, borderRadius: 18, letterSpacing: TRACK }}>
+            {lpair.a} {lpair.b}
+          </div>
+          <div style={{ flex: 1, height: 10, background: "#D6E4F2", borderRadius: 6, overflow: "hidden", margin: "0 4px" }}>
+            <div style={{ width: `${Math.round((li / lq.length) * 100)}%`, height: "100%", background: C.blue, borderRadius: 6, transition: "width .4s" }} />
+          </div>
+          <div style={{ ...cardSt, padding: "8px 16px", fontSize: 21, fontWeight: 800, borderRadius: 18, color: "#8A5A00", background: "#FFF3D6" }}>
+            🪙 {L.coins}
+          </div>
+        </div>
+
+        <div style={{
+          ...cardSt, alignSelf: "center", width: "min(94vw,720px)",
+          height: "clamp(170px,32vh,250px)", display: "flex", alignItems: "center", justifyContent: "center"
+        }}>
+          {lstage === "fix" && <div style={{ width: 20, height: 20, borderRadius: "50%", background: C.ink, animation: "bwPulse .4s ease-in-out infinite" }} />}
+          {lstage === "show" && (
+            <span style={{ fontSize: "clamp(66px,14vw,116px)", fontWeight: 800, letterSpacing: TRACK }}>{item.show}</span>
+          )}
+          {lstage === "answer" && <span style={{ fontSize: 64, color: C.mask, letterSpacing: 8 }}>▮▮▮▮</span>}
+          {lstage === "fb" && lfb && (
+            <span style={{
+              fontSize: "clamp(60px,12vw,100px)", fontWeight: 800, letterSpacing: TRACK,
+              color: lfb.ok ? C.green : C.ink, animation: "bwPop .35s ease-out"
+            }}>{lfb.ok ? "✓ " : ""}{item.answer}</span>
+          )}
+        </div>
+
+        <div style={{
+          alignSelf: "center", width: "min(94vw,760px)", flex: 1,
+          display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, alignContent: "center",
+          opacity: lstage === "answer" || lstage === "fb" ? 1 : 0,
+          pointerEvents: lstage === "answer" ? "auto" : "none", transition: "opacity .12s"
+        }}>
+          {item.opts.map((o, i) => {
+            let bg = C.card, col = C.ink, anim = "none";
+            if (lstage === "fb" && lfb) {
+              if (o === item.answer) { bg = C.green; col = "#fff"; }
+              else if (o === lfb.chosen) { bg = C.red; col = "#fff"; anim = "bwShake .4s ease"; }
+              else { bg = "#F2F6FA"; col = "#9FB0C2"; }
+            }
+            return (
+              <button key={i} className="tile" onClick={() => letterAnswer(o)} style={{
+                ...cardSt, background: bg, color: col, minHeight: 118,
+                fontSize: "clamp(38px,7vw,62px)", fontWeight: 800, letterSpacing: TRACK,
+                cursor: "pointer", animation: anim, fontFamily: "inherit"
+              }}>{o}</button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+  if (phase === "ldone") {
+    const { r, n } = lScore.current;
+    return (
+      <div className="bw" style={{ ...wrap, alignItems: "center", justifyContent: "center", gap: 22, padding: 16 }}>
+        <style>{css}</style>
+        <div style={{ fontSize: 66 }}>{r === n ? "🏆" : r * 2 >= n ? "👏" : "💪"}</div>
+        <div style={{ fontSize: 40, fontWeight: 900 }}>{r} / {n}</div>
+        <div style={{ display: "flex", gap: 16 }}>
+          <button onClick={() => startLetters(lpair)} className="bigbtn" style={{
+            ...cardSt, width: 104, height: 104, borderRadius: "50%", background: C.blue,
+            color: "#fff", fontSize: 40, cursor: "pointer"
+          }}>↻</button>
+          <button onClick={goHome} className="bigbtn" style={{
+            ...cardSt, width: 104, height: 104, borderRadius: "50%", fontSize: 40, cursor: "pointer"
+          }}>🏠</button>
+        </div>
       </div>
     );
   }

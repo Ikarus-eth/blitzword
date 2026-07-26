@@ -168,6 +168,36 @@ readers latch onto salient irrelevant cues (Ehri's phases; Pullen & Lane
 recommend single-colour letter sets for this reason), with learners cued during
 practice but not at test performing worst of all.
 
+## Buchstaben-Blitz — a temporary drill, not a permanent mode
+
+`b` and `d` are the same shape mirrored; `m` and `n` are the same arch once or
+twice. That is a looking problem, not a reading problem, and the main loop is
+the wrong place to fix it: a b/d contrast appears in roughly one question in
+six, so 50 reps on the pair would cost ~300 questions. A real export had 36
+errors across those two pairs, 21 of them b/d, against 683 total answers.
+
+- **It appears only while a shape pair is above threshold** (≥8 errors) and
+  disappears when the pair stops costing answers. A permanent extra button on
+  the start screen is a cost paid by every child who doesn't need one. The
+  launcher is labelled with the pair itself — `b d` — so there is nothing to
+  decode.
+- **Only letterform pairs.** Vowel confusions go to Vokal-Blitz; word-final
+  devoicing is not a looking problem and belongs nowhere near this.
+- **Flash and mask, same mechanic as the main loop.** A side-by-side matching
+  task would be solvable by comparing two shapes without ever identifying a
+  letter. The mask forces him to encode *which* letter it was.
+- **Difficulty climbs inside the round while the pair stays fixed:** bare
+  letters → syllables (`da`/`ba`) → real curriculum words against their
+  one-letter pseudo-word (`der`/`ber`), with exposure stepping 1200 → 800 →
+  500 ms. Words he has actually missed on that pair are ordered first.
+- **The Bett anchor** opens a b/d round: `b 🛏 d`, the standard German classroom
+  cue — b is the headboard, d the footboard. Shown once before the round, never
+  during it, so it stays a memory hook rather than an on-screen crutch. No
+  equivalent is invented for the other pairs; they open straight into the round.
+- **Scoring lives in `L.lp[pair]`**, at language level rather than per word,
+  because most items (bare letters, syllables) are not curriculum words at all.
+  It never touches `s`/`cc`/`iv`/`due`/`h`. There is a test asserting this.
+
 ## Rewards
 
 - +1 coin per correct answer.
