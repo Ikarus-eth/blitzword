@@ -315,6 +315,33 @@ and no amount of sounding out separates them. The remedy is extension —
 `Tag → Tage`, `Haus → Häuser`, `gibt → geben` — and grouping it with `der→ber`
 hides that completely. On the reference export the split was 41 / 26 / 19 / 11 %.
 
+### New-badge star
+
+A badge unlocked since he last opened the screen carries a ⭐ in its corner, the
+category header carries one if any of its badges are new, the header shows a
+green ⭐ count, and the trophy on the start screen carries one so he knows to go
+and look.
+
+**Marking happens on the way out, never on entry.** Marking on entry is the
+obvious implementation and is exactly wrong: the star would be cleared by the
+act of going to look for it, so a badge earned between visits would never once
+be seen marked. Leaving the screen marks everything currently unlocked as seen.
+
+`ach.seen` is a plain id→true map rather than a timestamp — a "last viewed"
+time has to reason about same-second unlocks and a device clock that can move
+backwards, and buys nothing here.
+
+**Migration matters.** An existing save has unlocked badges and no `seen` map.
+Those are seeded as already seen *and written back to storage immediately*. In
+memory only, the seeding would re-run on every load, and by the second load
+`unlocked` would contain badges genuinely earned since — which would then be
+silently marked seen and never star. The one occasion the feature most needs to
+work is the first launch after it ships.
+
+Note the star spans carry `data-new`. ⭐ is already the glyph for star level on
+the language cards, so counting the character finds the wrong elements; the
+attribute is what the test selects on.
+
 ### Mini-game badges
 
 Each mini-game carries its own 10, bringing the total to 120. Both follow the

@@ -1115,9 +1115,13 @@ function miniStats(de, en, ach) {
   };
 }
 const freshAch = () => ({
-  unlocked: {}, bestStreak: 0, perfectSpeeds: {}, chunksDone: 0, speedChanged: false,
+  unlocked: {}, seen: {}, bestStreak: 0, perfectSpeeds: {}, chunksDone: 0, speedChanged: false,
   vRounds: 0, vPerfect: 0, vBest: 0, lRounds: 0, lPerfect: 0, lBest: 0
 });
+/* Which badges he has not looked at yet. `seen` is marked on *leaving* the
+   badge screen, never on entering it — mark on entry and the star would be
+   cleared by the very act of going to look for it. */
+const unseenAch = (ach) => ACHIEVEMENTS.filter((a) => ach.unlocked[a.id] && !(ach.seen || {})[a.id]);
 /* returns the list of achievement objects that just became true and
    weren't already unlocked — caller merges these into ach.unlocked */
 function checkNewUnlocks(data, ach) {
@@ -1449,7 +1453,7 @@ function Stat({ label, value }) {
     </div>
   );
 }
-function Badge({ a, unlocked, lang, onTap }) {
+function Badge({ a, unlocked, isNew, lang, onTap }) {
   return (
     <button onClick={() => onTap(a)} className="bigbtn" style={{
       display: "flex", flexDirection: "column", alignItems: "center", gap: 4, width: 76,
@@ -1459,8 +1463,18 @@ function Badge({ a, unlocked, lang, onTap }) {
       <div style={{
         width: 54, height: 54, borderRadius: 16, background: unlocked ? "#FFF3D6" : "#EEF3F8",
         border: `2px solid ${unlocked ? C.gold : "#C9D6E2"}`, display: "flex",
-        alignItems: "center", justifyContent: "center", fontSize: 27, flexShrink: 0
-      }}>{unlocked ? a.icon : "🔒"}</div>
+        alignItems: "center", justifyContent: "center", fontSize: 27, flexShrink: 0,
+        position: "relative"
+      }}>
+        {unlocked ? a.icon : "🔒"}
+        {/* the "you have not seen this one yet" star */}
+        {isNew && (
+          <span data-new="1" style={{
+            position: "absolute", top: -8, right: -8, fontSize: 20,
+            animation: "bwPop .35s ease-out", filter: "drop-shadow(0 1px 1px rgba(34,49,74,.35))"
+          }}>⭐</span>
+        )}
+      </div>
       <div style={{ fontSize: 10, fontWeight: 700, textAlign: "center", lineHeight: 1.25, color: unlocked ? C.ink : "#9FB0C2" }}>
         {lang === "de" ? a.de : a.en}
       </div>
@@ -1621,7 +1635,19 @@ export default function App() {
         if (typeof meta.speechPitch === "number") setSpeechPitch(meta.speechPitch);
       }
       const [de, en, savedAch] = await Promise.all([sget("sr.de"), sget("sr.en"), sget("sr.ach")]);
-      setAch({ ...freshAch(), ...(savedAch || {}) });
+      const loadedAch = { ...freshAch(), ...(savedAch || {}) };
+      if (savedAch && !savedAch.seen) {
+        /* first run after the "new badge" star shipped: everything already
+           earned counts as seen, otherwise the whole wall lights up at once
+           and the star means nothing on the one occasion it matters most */
+        loadedAch.seen = {};
+        Object.keys(loadedAch.unlocked).forEach((id) => { loadedAch.seen[id] = true; });
+        /* written back immediately. Left in memory only, this would re-run on
+           every load, and by the second load `unlocked` would contain badges
+           earned since — which would then be silently marked as already seen. */
+        persist("sr.ach", loadedAch);
+      }
+      setAch(loadedAch);
       setData({ de: migrate(de), en: migrate(en) });
       setPhase("home");
     })();
@@ -1975,6 +2001,17 @@ export default function App() {
   const openStack = (from) => { backRef.current = from; setShowData(false); setPhase("stack"); };
   const openParent = () => { setDashLang(lang); setShowData(false); setImportText(""); setImportMsg(null); setLinkOut(""); setPhase("parent"); };
   const openAch = (from) => { backRef.current = from; setSelectedAch(null); setPhase("achievements"); };
+  /* Marking happens here, on the way out. He has now had the chance to look at
+     every star on the screen; the next one he earns will be the only one lit. */
+  const closeAch = () => {
+    const seen = { ...(achRef.current.seen || {}) };
+    Object.keys(achRef.current.unlocked).forEach((id) => { seen[id] = true; });
+    const updated = { ...achRef.current, seen };
+    achRef.current = updated;
+    setAch(updated);
+    persist("sr.ach", updated);
+    setPhase(backRef.current);
+  };
   const dismissToast = () => setUnlockQueue((q) => q.slice(1));
 
   /* ---- derived ---- */
@@ -2097,6 +2134,14 @@ export default function App() {
               position: "absolute", bottom: -18, right: -22, background: C.gold, color: "#fff",
               fontSize: 11, fontWeight: 900, borderRadius: 10, padding: "1px 6px", border: "2px solid #fff"
             }}>{Object.keys(ach.unlocked).length}</span>
+            {/* something new is waiting in there. Additive: the count keeps
+                meaning "how many you have", the star means "go and look". */}
+            {unseenAch(ach).length > 0 && (
+              <span data-new="trophy" style={{
+                position: "absolute", top: -20, left: -20, fontSize: 19,
+                animation: "bwBreathe 1.4s ease-in-out infinite"
+              }}>⭐</span>
+            )}
           </span>
         </button>
 
@@ -2758,11 +2803,12 @@ export default function App() {
   /* ------------------------- achievements gallery ------------------ */
   if (phase === "achievements") {
     const unlockedCount = Object.keys(ach.unlocked).length;
+    const newCount = unseenAch(ach).length;
     return (
       <div className="bw" style={{ ...wrap, alignItems: "stretch", padding: 14, gap: 14, overflowY: "auto" }}>
         <style>{css}</style>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <button onClick={() => setPhase(backRef.current)} className="bigbtn"
+          <button onClick={closeAch} className="bigbtn"
             style={{ ...cardSt, width: 56, height: 56, fontSize: 24, borderRadius: 18, cursor: "pointer" }}>⬅</button>
           <span style={{ fontSize: 30 }}>🏆</span>
           <div style={{ fontSize: 20, fontWeight: 900 }}>{S.ach}</div>
@@ -2770,6 +2816,12 @@ export default function App() {
           <div style={{ ...cardSt, padding: "8px 16px", fontSize: 18, fontWeight: 800, borderRadius: 18, background: "#FFF3D6", color: "#8A5A00" }}>
             {unlockedCount}/{ACHIEVEMENTS.length}
           </div>
+          {newCount > 0 && (
+            <div style={{
+              ...cardSt, padding: "8px 14px", fontSize: 18, fontWeight: 900, borderRadius: 18,
+              background: C.green, color: "#fff", borderColor: C.ink
+            }}>⭐ {newCount}</div>
+          )}
         </div>
 
         {CAT_ORDER.map((c) => {
@@ -2780,10 +2832,15 @@ export default function App() {
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
                 <span style={{ fontSize: 19, fontWeight: 800 }}>{CAT_NAMES[c][lang === "de" ? 0 : 1]}</span>
                 <span style={{ fontSize: 14, fontWeight: 700, color: "#8CA0B5" }}>{gotN}/{items.length}</span>
+                {items.some((a) => ach.unlocked[a.id] && !(ach.seen || {})[a.id]) && (
+                  <span style={{ fontSize: 15 }}>⭐</span>
+                )}
               </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 12, justifyContent: "flex-start" }}>
                 {items.map((a) => (
-                  <Badge key={a.id} a={a} unlocked={!!ach.unlocked[a.id]} lang={lang} onTap={setSelectedAch} />
+                  <Badge key={a.id} a={a} unlocked={!!ach.unlocked[a.id]}
+                    isNew={!!ach.unlocked[a.id] && !(ach.seen || {})[a.id]}
+                    lang={lang} onTap={setSelectedAch} />
                 ))}
               </div>
             </div>
