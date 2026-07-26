@@ -203,8 +203,18 @@ errors across those two pairs, 21 of them b/d, against 683 total answers.
   letter. The mask forces him to encode *which* letter it was.
 - **Difficulty climbs inside the round while the pair stays fixed:** bare
   letters → syllables (`da`/`ba`) → real curriculum words against their
-  one-letter pseudo-word (`der`/`ber`), with exposure stepping 1200 → 800 →
-  500 ms. Words he has actually missed on that pair are ordered first.
+  one-letter pseudo-word (`der`/`ber`). Words he has actually missed on that
+  pair are ordered first.
+- **Exposure follows the speed slider**, like the main loop. The within-round
+  ramp is a relative step down the same `DUR` table (+0 / +1 / +2 indices), not
+  fixed milliseconds — so it stays a ramp at every setting rather than being a
+  ramp at some and a wall at others. The slider is the child's one difficulty
+  control; a game that ignores it is a game he can't make easier when stuck.
+- **A pair retires** once the drill shows 20 answers at ≥90%, and the launcher
+  disappears. This is load-bearing: `mx` is a lifetime tally that only grows, so
+  without retirement a pair that crossed the threshold once could never fall
+  back under it however well he read afterwards, and the "temporary" drill would
+  be permanent. Retirement is also what awards `l10`.
 - **The Bett anchor** opens a b/d round: `b 🛏 d`, the standard German classroom
   cue — b is the headboard, d the footboard. Shown once before the round, never
   during it, so it stays a memory hook rather than an on-screen crutch. No
@@ -304,6 +314,27 @@ German neutralises /d/ and /t/ word-finally, so `isd` and `ist` are homophones
 and no amount of sounding out separates them. The remedy is extension —
 `Tag → Tage`, `Haus → Häuser`, `gibt → geben` — and grouping it with `der→ber`
 hides that completely. On the reference export the split was 41 / 26 / 19 / 11 %.
+
+### Mini-game badges
+
+Each mini-game carries its own 10, bringing the total to 120. Both follow the
+same shape: two entry badges (first answer, first completed round), a four-step
+volume ladder, a streak, a breadth or perfect-round badge, and one quality
+badge that cannot be won by rushing.
+
+That last one is the point. `k10` needs 90% across at least 100 vowel answers
+and `l10` needs a pair retired — both reward accuracy over throughput. A badge
+for answering quickly would work directly against the reason these modes exist.
+`l10` is the only badge in the app awarded for no longer needing a feature.
+
+Ids are worth one note: both categories are built from the shared `ladder`
+factory with prefixes `k` and `l`, whose generated ids collide with the
+hand-written entries and are remapped to `k3`–`k6` / `l3`–`l6`. A collision
+would make two badges share an unlock slot and quietly render one unreachable,
+so `test_minigame_awards` checks one hand-written and one remapped badge in the
+same run. The badge total is derived from `ACHIEVEMENTS.length` everywhere it is
+displayed — it used to be a literal `100` in the header and in two tests, which
+is why adding a category broke them.
 
 ## Storage
 

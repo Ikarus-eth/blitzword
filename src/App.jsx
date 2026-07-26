@@ -606,7 +606,13 @@ function buildLetterQueue(L, list, lang, pair, n) {
   [...top, ...rest].slice(0, n - items.length).forEach(([w, o]) => items.push(mk(w, o)));
   return items.slice(0, n);
 }
-const letterExposure = (i) => (i < 5 ? 1200 : i < 10 ? 800 : 500);
+/* Exposure follows the speed slider, exactly like the main loop — the slider is
+   the child's one difficulty control and a game that ignores it is a game he
+   cannot make easier when he is struggling. The within-round ramp is kept, but
+   as a relative step down the same DUR table rather than fixed milliseconds, so
+   it stays a ramp at every setting instead of being a ramp at some and a wall
+   at others. */
+const letterExposure = (i, speed) => DUR[Math.min(speed + (i < 5 ? 0 : i < 10 ? 1 : 2), DUR.length - 1)];
 
 const VOWEL_N = 12;
 
@@ -743,13 +749,27 @@ function missKinds(L, lang) {
    this mode is temporary: it appears when a pair is actually costing him
    answers and disappears once it stops. */
 const LETTER_PAIR_MIN = 8;
+const PAIR_RETIRE_N = 20;      // drill answers needed before a pair can retire
+const PAIR_RETIRE_ACC = 0.9;
+/* A pair retires once the drill itself shows he has it: PAIR_RETIRE_N answers
+   at PAIR_RETIRE_ACC or better. Without this the mode would be permanent —
+   `mx` is a lifetime tally and only ever grows, so a pair that crossed the
+   threshold once could never fall back under it no matter how well he read
+   afterwards. Retirement is what makes the launcher temporary. */
+const pairRetired = (L, key) => {
+  const rec = (L.lp || {})[key];
+  if (!rec || !rec.h || rec.h.length < PAIR_RETIRE_N) return false;
+  let hit = 0; for (const x of rec.h) hit += x;
+  return hit / rec.h.length >= PAIR_RETIRE_ACC;
+};
 function letterPairsNeedingWork(L, lang) {
   const { letterList } = analyzeConfusions(L);
   return letterList
     .filter((l) => {
       const k = l.pair.split("↔").sort().join("");
       return FORM_PAIRS.includes(k) && l.count >= LETTER_PAIR_MIN &&
-        !VOWELS[lang].includes(k[0]) && !VOWELS[lang].includes(k[1]);
+        !VOWELS[lang].includes(k[0]) && !VOWELS[lang].includes(k[1]) &&
+        !pairRetired(L, k);
     })
     .map((l) => ({ a: l.pair.split("↔")[0], b: l.pair.split("↔")[1], count: l.count }));
 }
@@ -854,9 +874,11 @@ const CAT_NAMES = {
   speed: ["Perfektes Tempo", "Perfect at Speed"],
   reach: ["Übungs-Stufen", "Practice Levels"],
   star: ["Stufen gemeistert", "Levels Mastered"],
-  gold: ["Turbo & Gold", "Turbo & Gold"]
+  gold: ["Turbo & Gold", "Turbo & Gold"],
+  vowel: ["Vokal-Blitz", "Vowel Blitz"],
+  letters: ["Buchstaben-Blitz", "Letter Blitz"]
 };
-const CAT_ORDER = ["start", "streak", "volume", "mastery", "minutes", "days", "speed", "reach", "star", "gold"];
+const CAT_ORDER = ["start", "streak", "volume", "mastery", "minutes", "days", "speed", "reach", "star", "gold", "vowel", "letters"];
 
 /* factory for a straight numeric-threshold ladder, DRYs out 8 of the
    10 categories which are otherwise near-identical boilerplate.
@@ -973,10 +995,67 @@ const ACHIEVEMENTS = [
     check: (S) => S.goldLevelsCombined >= 1 },
   { id: "j10", cat: "gold", icon: "🥇", de: "Alles Gold!", en: "All Gold!",
     deDesc: "Bringe alle 10 Stufen einer Sprache komplett auf Raketen-Tempo.", enDesc: "Bring all 10 levels of one language fully to rocket speed.",
-    check: (S) => S.anyAllGold }
+    check: (S) => S.anyAllGold },
+
+  /* K — Vokal-Blitz. Deliberately not another volume ladder bolted on: two
+     entry badges, three volume steps, then streak, breadth, two perfect-round
+     steps and one quality badge. The quality badge (k10) is the only one that
+     can be lost by rushing, which is the point — the mode exists because vowels
+     were being guessed, and a badge for guessing fast would undo it. */
+  { id: "k1", cat: "vowel", icon: "🅰", de: "Erster Vokal!", en: "First Vowel!",
+    deDesc: "Beantworte deine erste Frage im Vokal-Blitz.", enDesc: "Answer your first question in Vowel Blitz.",
+    check: (S) => S.vTotal >= 1 },
+  { id: "k2", cat: "vowel", icon: "🏁", de: "Runde fertig!", en: "Round Done!",
+    deDesc: "Spiele eine ganze Vokal-Blitz-Runde zu Ende.", enDesc: "Play a whole Vowel Blitz round to the end.",
+    check: (S) => S.vRounds >= 1 },
+  ...ladder("k", "vowel", "🅰", [25, 100, 250, 500],
+    (n) => `${n} Vokale`, (n) => `${n} Vowels`, "vTotal",
+    (n) => `Beantworte insgesamt ${n} Fragen im Vokal-Blitz.`,
+    (n) => `Answer a total of ${n} questions in Vowel Blitz.`).map((a, i) => ({ ...a, id: `k${i + 3}` })),
+  { id: "k7", cat: "vowel", icon: "🔥", de: "10 am Stück!", en: "10 Straight!",
+    deDesc: "Triff im Vokal-Blitz 10 Vokale hintereinander richtig.", enDesc: "Get 10 vowels right in a row in Vowel Blitz.",
+    check: (S) => S.vBest >= 10 },
+  { id: "k8", cat: "vowel", icon: "📚", de: "30 Wörter", en: "30 Words",
+    deDesc: "Übe 30 verschiedene Wörter im Vokal-Blitz.", enDesc: "Practise 30 different words in Vowel Blitz.",
+    check: (S) => S.vWords >= 30 },
+  { id: "k9", cat: "vowel", icon: "💯", de: "Alles richtig!", en: "All Correct!",
+    deDesc: "Schaffe eine ganze Vokal-Blitz-Runde ohne einen einzigen Fehler.", enDesc: "Complete a whole Vowel Blitz round without a single mistake.",
+    check: (S) => S.vPerfect >= 1 },
+  { id: "k10", cat: "vowel", icon: "🎓", de: "Vokal-Meister", en: "Vowel Master",
+    deDesc: "Erreiche 90% richtige Antworten im Vokal-Blitz — über mindestens 100 Fragen gerechnet.",
+    enDesc: "Reach 90% correct in Vowel Blitz — measured over at least 100 questions.",
+    check: (S) => S.vTotal >= 100 && S.vCorrect / S.vTotal >= 0.9 },
+
+  /* L — Buchstaben-Blitz. Same shape, but l10 is the one that matters: a pair
+     is "cleared" when the drill itself shows 20 answers at 90%+, which is also
+     what makes the launcher disappear. It is the only badge in the app awarded
+     for no longer needing a feature. */
+  { id: "l1", cat: "letters", icon: "🔤", de: "Erster Buchstabe!", en: "First Letter!",
+    deDesc: "Beantworte deine erste Frage im Buchstaben-Blitz.", enDesc: "Answer your first question in Letter Blitz.",
+    check: (S) => S.lTotal >= 1 },
+  { id: "l2", cat: "letters", icon: "🏁", de: "Runde fertig!", en: "Round Done!",
+    deDesc: "Spiele eine ganze Buchstaben-Blitz-Runde zu Ende.", enDesc: "Play a whole Letter Blitz round to the end.",
+    check: (S) => S.lRounds >= 1 },
+  ...ladder("l", "letters", "🔤", [25, 100, 250, 500],
+    (n) => `${n} Buchstaben`, (n) => `${n} Letters`, "lTotal",
+    (n) => `Beantworte insgesamt ${n} Fragen im Buchstaben-Blitz.`,
+    (n) => `Answer a total of ${n} questions in Letter Blitz.`).map((a, i) => ({ ...a, id: `l${i + 3}` })),
+  { id: "l7", cat: "letters", icon: "🔥", de: "10 am Stück!", en: "10 Straight!",
+    deDesc: "Triff im Buchstaben-Blitz 10 Buchstaben hintereinander richtig.", enDesc: "Get 10 letters right in a row in Letter Blitz.",
+    check: (S) => S.lBest >= 10 },
+  { id: "l8", cat: "letters", icon: "💯", de: "Alles richtig!", en: "All Correct!",
+    deDesc: "Schaffe eine ganze Buchstaben-Blitz-Runde ohne einen einzigen Fehler.", enDesc: "Complete a whole Letter Blitz round without a single mistake.",
+    check: (S) => S.lPerfect >= 1 },
+  { id: "l9", cat: "letters", icon: "🏅", de: "5× perfekt", en: "5× Perfect",
+    deDesc: "Schaffe fünf Buchstaben-Blitz-Runden ganz ohne Fehler.", enDesc: "Complete five Letter Blitz rounds with no mistakes at all.",
+    check: (S) => S.lPerfect >= 5 },
+  { id: "l10", cat: "letters", icon: "🎓", de: "Paar geknackt!", en: "Pair Cracked!",
+    deDesc: "Kriege ein Buchstaben-Paar wie b/d ganz sicher hin — 20 Antworten mit mindestens 90% richtig. Dann verschwindet die Übung von selbst.",
+    enDesc: "Master a letter pair like b/d for good — 20 answers at 90% or better. The drill then disappears on its own.",
+    check: (S) => S.lPairsRetired >= 1 }
 ];
 
-/* aggregates everything the 100 checks read, from the two language
+/* aggregates everything the 120 checks read, from the two language
    blobs plus the small extras (streaks/speeds/etc.) that don't live
    anywhere else since they're achievement-specific bookkeeping */
 function computeStats(data, ach) {
@@ -1007,10 +1086,38 @@ function computeStats(data, ach) {
     perfectSpeeds: ach.perfectSpeeds || {},
     hadPerfectChunk: Object.keys(ach.perfectSpeeds || {}).length > 0,
     chunksDone: ach.chunksDone || 0,
-    speedChanged: !!ach.speedChanged
+    speedChanged: !!ach.speedChanged,
+    /* mini-game totals. Per-word `vk` for vowels, per-language `lp` for letter
+       pairs, both summed across the two languages like every other counter
+       here. Round-level facts (rounds finished, perfect rounds, best streak)
+       cannot be recovered from the stored records, so they are kept in `ach`
+       alongside chunksDone. */
+    ...miniStats(de, en, ach)
   };
 }
-const freshAch = () => ({ unlocked: {}, bestStreak: 0, perfectSpeeds: {}, chunksDone: 0, speedChanged: false });
+function miniStats(de, en, ach) {
+  let vTotal = 0, vCorrect = 0, vWords = 0;
+  [de, en].forEach((L) => Object.values(L.words).forEach((w) => {
+    if (!w.vk) return;
+    const n = (w.vk.r || 0) + (w.vk.wr || 0);
+    if (!n) return;
+    vTotal += n; vCorrect += w.vk.r || 0; vWords++;
+  }));
+  let lTotal = 0, lCorrect = 0, lPairsRetired = 0;
+  [de, en].forEach((L) => Object.entries(L.lp || {}).forEach(([key, rec]) => {
+    lTotal += (rec.r || 0) + (rec.wr || 0); lCorrect += rec.r || 0;
+    if (pairRetired(L, key)) lPairsRetired++;
+  }));
+  return {
+    vTotal, vCorrect, vWords, lTotal, lCorrect, lPairsRetired,
+    vRounds: ach.vRounds || 0, vPerfect: ach.vPerfect || 0, vBest: ach.vBest || 0,
+    lRounds: ach.lRounds || 0, lPerfect: ach.lPerfect || 0, lBest: ach.lBest || 0
+  };
+}
+const freshAch = () => ({
+  unlocked: {}, bestStreak: 0, perfectSpeeds: {}, chunksDone: 0, speedChanged: false,
+  vRounds: 0, vPerfect: 0, vBest: 0, lRounds: 0, lPerfect: 0, lBest: 0
+});
 /* returns the list of achievement objects that just became true and
    weren't already unlocked — caller merges these into ach.unlocked */
 function checkNewUnlocks(data, ach) {
@@ -1430,6 +1537,7 @@ export default function App() {
   const [vfb, setVfb] = useState(null);
   const vScore = useRef({ r: 0, n: 0 });
   const vAt = useRef(0);
+  const vRun = useRef(0);
   const [lq, setLq] = useState([]);             // Buchstaben-Blitz round
   const [li, setLi] = useState(0);
   const [lstage, setLstage] = useState("fix");  // fix|show|answer|fb
@@ -1437,6 +1545,7 @@ export default function App() {
   const [lpair, setLpair] = useState(null);
   const lScore = useRef({ r: 0, n: 0 });
   const lAt = useRef(0);
+  const lRun = useRef(0);
   const [lang, setLang] = useState("de");
   const [speed, setSpeed] = useState(3);
   const [snd, setSnd] = useState(true);
@@ -1562,7 +1671,7 @@ export default function App() {
     if (phase !== "letters") return;
     let t;
     if (lstage === "fix") t = setTimeout(() => setLstage("show"), 400);
-    else if (lstage === "show") t = setTimeout(() => { lAt.current = Date.now(); setLstage("answer"); }, letterExposure(li));
+    else if (lstage === "show") t = setTimeout(() => { lAt.current = Date.now(); setLstage("answer"); }, letterExposure(li, speedRef.current));
     return () => clearTimeout(t);
   }, [phase, lstage, li]);
 
@@ -1601,7 +1710,7 @@ export default function App() {
     const lg = langRef.current;
     const q = buildLetterQueue(dataRef.current[lg], LISTS[lg], lg, pair, LETTER_N);
     if (!q.length) return;
-    lScore.current = { r: 0, n: 0 };
+    lScore.current = { r: 0, n: 0 }; lRun.current = 0;
     setLpair(pair); setLq(q); setLi(0); setLfb(null);
     /* the Bett anchor, b/d only — it is the standard German classroom cue and
        there is no equivalent worth inventing for the other pairs */
@@ -1617,14 +1726,18 @@ export default function App() {
     const L = clone(prev[lg]);
     const key = [lpair.a, lpair.b].sort().join("");
     L.lp = L.lp || {};
-    const rec = L.lp[key] || (L.lp[key] = { r: 0, wr: 0 });
+    const rec = L.lp[key] || (L.lp[key] = { r: 0, wr: 0, h: [] });
     if (ok) { rec.r++; L.coins += 1; } else rec.wr++;
+    rec.h = [...(rec.h || []), ok ? 1 : 0].slice(-PAIR_RETIRE_N);
     const day = L.days[tISO()] || (L.days[tISO()] = { s: 0, b1: 0, b2: 0 });
     day.s += Math.min((Date.now() - lAt.current) / 1000, 12);
     trimDays(L.days);
     const newData = { ...prev, [lg]: L };
     dataRef.current = newData; setData(newData); scheduleSave(lg);
     lScore.current = { r: lScore.current.r + (ok ? 1 : 0), n: lScore.current.n + 1 };
+    lRun.current = ok ? lRun.current + 1 : 0;
+    if (lRun.current > (achRef.current.lBest || 0)) achRef.current = { ...achRef.current, lBest: lRun.current };
+    runAchCheck(newData);
     if (sndRef.current) { ok ? sfx.ok() : sfx.no(); }
     setLfb({ ok, chosen: opt });
     setLstage("fb");
@@ -1632,7 +1745,16 @@ export default function App() {
     if (ok) setTimeout(letterNext, 850);   // a miss waits for the continue button
   };
   const letterNext = () => {
-    if (li + 1 >= lq.length) { setPhase("ldone"); return; }
+    if (li + 1 >= lq.length) {
+      const { r, n } = lScore.current;
+      achRef.current = {
+        ...achRef.current,
+        lRounds: (achRef.current.lRounds || 0) + 1,
+        lPerfect: (achRef.current.lPerfect || 0) + (n >= 10 && r === n ? 1 : 0)
+      };
+      runAchCheck(dataRef.current);
+      setPhase("ldone"); return;
+    }
     setLi(li + 1); setLfb(null); setLstage("fix");
   };
 
@@ -1648,7 +1770,7 @@ export default function App() {
     const lg = langRef.current;
     const q = buildVowelQueue(dataRef.current[lg], LISTS[lg], lg, VOWEL_N);
     if (!q.length) return;
-    vScore.current = { r: 0, n: 0 };
+    vScore.current = { r: 0, n: 0 }; vRun.current = 0;
     vAt.current = Date.now();
     setVq(q); setVi(0); setVfb(null); setPhase("vowel");
     setTimeout(() => sayWord(q[0].word), 350);
@@ -1675,13 +1797,25 @@ export default function App() {
     setData(newData);
     scheduleSave(lg);
     vScore.current = { r: vScore.current.r + (ok ? 1 : 0), n: vScore.current.n + 1 };
+    vRun.current = ok ? vRun.current + 1 : 0;
+    if (vRun.current > (achRef.current.vBest || 0)) achRef.current = { ...achRef.current, vBest: vRun.current };
+    runAchCheck(newData);
     if (sndRef.current) { ok ? sfx.ok() : sfx.no(); }
     setVfb({ ok, chosen: opt });
     sayWord(item.word);
     if (ok) setTimeout(vowelNext, 1200);   // a miss waits for the continue button
   };
   const vowelNext = () => {
-    if (vi + 1 >= vq.length) { setPhase("vdone"); return; }
+    if (vi + 1 >= vq.length) {
+      const { r, n } = vScore.current;
+      achRef.current = {
+        ...achRef.current,
+        vRounds: (achRef.current.vRounds || 0) + 1,
+        vPerfect: (achRef.current.vPerfect || 0) + (n >= 10 && r === n ? 1 : 0)
+      };
+      runAchCheck(dataRef.current);
+      setPhase("vdone"); return;
+    }
     vAt.current = Date.now();
     setVi(vi + 1); setVfb(null);
     sayWord(vq[vi + 1].word);
@@ -2634,7 +2768,7 @@ export default function App() {
           <div style={{ fontSize: 20, fontWeight: 900 }}>{S.ach}</div>
           <div style={{ flex: 1 }} />
           <div style={{ ...cardSt, padding: "8px 16px", fontSize: 18, fontWeight: 800, borderRadius: 18, background: "#FFF3D6", color: "#8A5A00" }}>
-            {unlockedCount}/100
+            {unlockedCount}/{ACHIEVEMENTS.length}
           </div>
         </div>
 
@@ -2645,7 +2779,7 @@ export default function App() {
             <div key={c} style={{ ...cardSt, padding: 14 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
                 <span style={{ fontSize: 19, fontWeight: 800 }}>{CAT_NAMES[c][lang === "de" ? 0 : 1]}</span>
-                <span style={{ fontSize: 14, fontWeight: 700, color: "#8CA0B5" }}>{gotN}/10</span>
+                <span style={{ fontSize: 14, fontWeight: 700, color: "#8CA0B5" }}>{gotN}/{items.length}</span>
               </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 12, justifyContent: "flex-start" }}>
                 {items.map((a) => (

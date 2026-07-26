@@ -16,7 +16,9 @@ byText("🏆").dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
 await new Promise((r) => setTimeout(r, 50));
 
 let rootHtml = window.document.getElementById("root").innerHTML;
-console.log("gallery opened:", rootHtml.includes("0/100"));
+// denominator read from the page, not hardcoded — see test_achievements_e2e
+const TOTAL = (rootHtml.match(/\b0\/(\d{2,4})\b/) || [])[1];
+console.log("gallery opened (0/" + TOTAL + "):", !!TOTAL);
 
 // find a badge button by its terse title text and tap it — "Richtig!"
 // (a1: answer one question correctly) should exist and be locked (grayscale)
@@ -42,8 +44,8 @@ overlay.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
 await new Promise((r) => setTimeout(r, 50));
 rootHtml = window.document.getElementById("root").innerHTML;
 console.log("modal dismissed after tapping outside:", !rootHtml.includes("Beantworte eine einzige Frage richtig"));
-console.log("gallery still visible underneath (didn't accidentally navigate away):", rootHtml.includes("0/100"));
+console.log("gallery still visible underneath (didn't accidentally navigate away):", rootHtml.includes(`0/${TOTAL}`));
 
-const allPass = errors.length === 0 && rootHtml.includes("0/100");
+const allPass = errors.length === 0 && !!TOTAL && rootHtml.includes(`0/${TOTAL}`);
 console.log(`\n=== ACHIEVEMENT INFO MODAL E2E TEST ${allPass ? "PASSED" : "FAILED"} ===`);
 process.exit(allPass ? 0 : 1);

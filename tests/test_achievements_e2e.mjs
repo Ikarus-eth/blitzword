@@ -14,14 +14,18 @@ window.addEventListener("error", (e) => errors.push(e.error || e.message));
 
 await new Promise((r) => setTimeout(r, 300));
 
-// 1. trophy button exists on Home and gallery opens with 0/100
+// 1. trophy button exists on Home and gallery opens with none unlocked.
+// The denominator is read from the page rather than hardcoded: it is the badge
+// count, which changes whenever a category is added, and a literal here means
+// two unrelated tests break every time that happens.
 const byText = (t) => [...window.document.querySelectorAll("button")].find((b) => b.textContent.includes(t));
 const trophyBtn = byText("🏆");
 console.log("trophy button found on Home:", !!trophyBtn);
 trophyBtn.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
 await new Promise((r) => setTimeout(r, 50));
 let rootHtml = window.document.getElementById("root").innerHTML;
-console.log("gallery opened (0/100 shown):", rootHtml.includes("0/100"));
+const TOTAL = (rootHtml.match(/\b0\/(\d{2,4})\b/) || [])[1];
+console.log("gallery opened (0/" + TOTAL + " shown):", !!TOTAL);
 console.log("all 10 category names present:", ["Erste Schritte", "Richtige in Folge", "Fragen beantwortet", "Wörter gemeistert", "Tägliche Übung", "Tage-Serie", "Perfektes Tempo", "Übungs-Stufen", "Stufen gemeistert", "Turbo & Gold"].every((c) => rootHtml.includes(c)));
 console.log("locked badges show the lock icon:", rootHtml.includes("🔒"));
 
@@ -59,9 +63,9 @@ const trophyBtn2 = byText("🏆");
 trophyBtn2.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
 await new Promise((r) => setTimeout(r, 50));
 rootHtml = window.document.getElementById("root").innerHTML;
-console.log("\ngallery now shows 1/100:", rootHtml.includes("1/100"));
+console.log("\ngallery now shows 1/" + TOTAL + ":", rootHtml.includes(`1/${TOTAL}`));
 console.log("Erste Schritte category shows 1/10:", /Erste Schritte[\s\S]{0,60}1\/10/.test(rootHtml));
 
-const allPass = errors.length === 0 && !!achStored && !!achStored.unlocked.a1 && rootHtml.includes("1/100");
+const allPass = errors.length === 0 && !!achStored && !!achStored.unlocked.a1 && !!TOTAL && rootHtml.includes(`1/${TOTAL}`);
 console.log("\n=== ACHIEVEMENTS E2E TEST", allPass ? "PASSED" : "FAILED", "===");
 process.exit(allPass ? 0 : 1);
