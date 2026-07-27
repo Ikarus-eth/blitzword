@@ -50,10 +50,14 @@ console.log("uncaught errors:", errors.length);
 console.log("unlock toast appeared (Abzeichen!):", rootHtml.includes("Abzeichen"));
 console.log("toast shows the right badge title:", rootHtml.includes("Erste richtige Antwort"));
 
+// Badges are stored per language now: sr.ach = { v, de: {...}, en: {...} }.
+// This round was played in German, so it lands in the German gallery and the
+// English one must stay untouched.
 const achStored = JSON.parse(window.localStorage.getItem("sr.ach") || "null");
 console.log("\nsr.ach persisted:", !!achStored);
-console.log("a1 recorded as unlocked in storage:", achStored && !!achStored.unlocked.a1);
-console.log("only a1 unlocked, nothing extra:", achStored && Object.keys(achStored.unlocked).length === 1);
+console.log("a1 recorded as unlocked in the German gallery:", achStored && !!achStored.de.unlocked.a1);
+console.log("only a1 unlocked, nothing extra:", achStored && Object.keys(achStored.de.unlocked).length === 1);
+console.log("English gallery untouched:", achStored && Object.keys(achStored.en.unlocked).length === 0);
 
 // jump back home (via the in-game home button) then reopen gallery, confirm it now shows 1/100 and a1 in full color
 const homeBtn = [...window.document.querySelectorAll("button")].find((b) => b.textContent.trim() === "🏠");
@@ -66,6 +70,7 @@ rootHtml = window.document.getElementById("root").innerHTML;
 console.log("\ngallery now shows 1/" + TOTAL + ":", rootHtml.includes(`1/${TOTAL}`));
 console.log("Erste Schritte category shows 1/10:", /Erste Schritte[\s\S]{0,60}1\/10/.test(rootHtml));
 
-const allPass = errors.length === 0 && !!achStored && !!achStored.unlocked.a1 && !!TOTAL && rootHtml.includes(`1/${TOTAL}`);
+const allPass = errors.length === 0 && !!achStored && !!achStored.de.unlocked.a1
+  && Object.keys(achStored.en.unlocked).length === 0 && !!TOTAL && rootHtml.includes(`1/${TOTAL}`);
 console.log("\n=== ACHIEVEMENTS E2E TEST", allPass ? "PASSED" : "FAILED", "===");
 process.exit(allPass ? 0 : 1);

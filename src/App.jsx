@@ -933,21 +933,21 @@ const ACHIEVEMENTS = [
   { id: "a4", cat: "start", icon: "💯", de: "Perfekt!", en: "Perfect!",
     deDesc: "Schaffe eine Runde mit mindestens 10 Fragen ganz ohne Fehler.", enDesc: "Complete a round of at least 10 questions with zero mistakes.",
     check: (S) => S.hadPerfectChunk },
-  { id: "a5", cat: "start", icon: "🌍", de: "Zwei Sprachen!", en: "Two Languages!",
+  { id: "a5", cat: "start", icon: "🌍", de: "Zwei Sprachen!", en: "Two Languages!", shared: true,
     deDesc: "Spiele mindestens eine Frage auf Deutsch und eine auf Englisch.", enDesc: "Play at least one question in German and one in English.",
     check: (S) => S.bothTried },
   { id: "a6", cat: "start", icon: "📖", de: "Erstes Wort!", en: "First Word!",
     deDesc: "Bringe dein erstes Wort auf die Stufe \"Flüssig\".", enDesc: "Bring your first word to the \"Fluent\" stage.",
-    check: (S) => S.masteredCombined >= 1 },
-  { id: "a7", cat: "start", icon: "🔥", de: "Erster Tag!", en: "First Day!",
+    check: (S) => S.masteredWords >= 1 },
+  { id: "a7", cat: "start", icon: "🔥", de: "Erster Tag!", en: "First Day!", shared: true,
     deDesc: "Übe an einem Tag mindestens 10 Minuten.", enDesc: "Practice at least 10 minutes in one day.",
     check: (S) => S.bestStreakDays >= 1 },
   { id: "a8", cat: "start", icon: "📈", de: "Neue Stufe!", en: "New Level!",
     deDesc: "Schalte eine neue Übungs-Stufe frei.", enDesc: "Unlock a new practice level.",
-    check: (S) => S.reachMax >= 2 },
+    check: (S) => S.reach >= 2 },
   { id: "a9", cat: "start", icon: "🏆", de: "Stufe fertig!", en: "Level Done!",
     deDesc: "Meistere eine ganze Stufe komplett — mindestens 90% der Wörter, an 2 verschiedenen Tagen.", enDesc: "Fully master an entire level — at least 90% of its words, on 2 different days.",
-    check: (S) => S.starMax >= 2 },
+    check: (S) => S.star >= 2 },
   { id: "a10", cat: "start", icon: "🎚️", de: "Tempo!", en: "Speed!",
     deDesc: "Verstelle zum ersten Mal den Tempo-Schieberegler.", enDesc: "Move the speed slider for the first time.",
     check: (S) => S.speedChanged },
@@ -961,17 +961,19 @@ const ACHIEVEMENTS = [
     (n) => `Beantworte insgesamt ${n} Fragen — richtig oder falsch zählen beide.`,
     (n) => `Answer a total of ${n} questions — right or wrong both count.`),
   ...ladder("d", "mastery", "📖", [5, 10, 20, 35, 50, 75, 100, 125, 150, 200],
-    (n) => `${n} Wörter`, (n) => `${n} Words`, "masteredCombined",
-    (n) => `Bringe insgesamt ${n} Wörter auf die Stufe "Flüssig" (Deutsch und Englisch zusammengezählt).`,
-    (n) => `Bring a total of ${n} words to the "Fluent" stage (German and English combined).`),
+    (n) => `${n} Wörter`, (n) => `${n} Words`, "masteredWords",
+    (n) => `Bringe insgesamt ${n} Wörter dieser Sprache auf die Stufe "Flüssig".`,
+    (n) => `Bring a total of ${n} words in this language to the "Fluent" stage.`),
   ...ladder("e", "minutes", "⏱️", [5, 10, 15, 20, 25, 30, 40, 50, 60, 90],
     (n) => `${n} Min.`, (n) => `${n} Min`, "minutesToday",
     (n) => `Übe an einem einzigen Tag insgesamt ${n} Minuten (Deutsch und Englisch zusammen).`,
-    (n) => `Practice a total of ${n} minutes in a single day (German and English combined).`),
+    (n) => `Practice a total of ${n} minutes in a single day (German and English combined).`)
+    .map((a) => ({ ...a, shared: true })),
   ...ladder("f", "days", "📅", [2, 3, 5, 7, 10, 14, 21, 30, 60, 100],
     (n) => `${n} Tage`, (n) => `${n} Days`, "bestStreakDays",
     (n) => `Erreiche ${n} Tage in Folge mit je mindestens 10 Minuten Übung.`,
-    (n) => `Reach ${n} days in a row with at least 10 minutes of practice each.`),
+    (n) => `Reach ${n} days in a row with at least 10 minutes of practice each.`)
+    .map((a) => ({ ...a, shared: true })),
 
   // G — one per named slider speed (turtle through rocket): a perfect
   // (0-miss, >=10 question) round played at that exact setting. "100%
@@ -986,32 +988,32 @@ const ACHIEVEMENTS = [
   })),
 
   ...ladder("h", "reach", "📚", [2, 3, 4, 5, 6, 7, 8, 9, 10],
-    (n) => `Stufe ${n}`, (n) => `Level ${n}`, "reachMax",
+    (n) => `Stufe ${n}`, (n) => `Level ${n}`, "reach",
     (n) => `Schalte Stufe ${n} zum Üben frei (geht schon ab 70% der vorigen Stufe).`,
     (n) => `Unlock level ${n} for practice (possible once 70% of the previous level is done).`),
-  { id: "h10", cat: "reach", icon: "📚", de: "Alles offen!", en: "All Open!",
+  { id: "h10", cat: "reach", icon: "📚", de: "Alles offen!", en: "All Open!", shared: true,
     deDesc: "Schalte alle 10 Stufen zum Üben frei — in beiden Sprachen.", enDesc: "Unlock all 10 levels for practice — in both languages.",
     check: (S) => S.bothReach10 },
 
   ...ladder("i", "star", "⭐", [2, 3, 4, 5, 6, 7, 8, 9, 10],
-    (n) => `Stufe ${n}`, (n) => `Level ${n}`, "starMax",
+    (n) => `Stufe ${n}`, (n) => `Level ${n}`, "star",
     (n) => `Meistere Stufe ${n - 1} komplett — mindestens 90% der Wörter, an 2 verschiedenen Tagen.`,
     (n) => `Fully master level ${n - 1} — at least 90% of its words, on 2 different days.`),
   { id: "i10", cat: "star", icon: "⭐", de: "Alles gemeistert!", en: "All Mastered!",
-    deDesc: "Meistere alle 10 Stufen einer Sprache komplett.", enDesc: "Fully master all 10 levels of one language.",
+    deDesc: "Meistere alle 10 Stufen dieser Sprache komplett.", enDesc: "Fully master all 10 levels of this language.",
     check: (S) => S.fullCurriculumDone },
 
   ...ladder("j", "gold", "🚀", [1, 5, 10, 20, 40, 75, 120, 180],
-    (n) => `${n} Rakete`, (n) => `${n} Rocket`, "rocketWordsCombined",
-    (n) => `Bringe insgesamt ${n} Wörter auf Raketen-Tempo (mind. 2× richtig bei ≤500ms), in beiden Sprachen zusammen.`,
-    (n) => `Bring a total of ${n} words to rocket speed (at least 2 correct answers at ≤500ms), combined across both languages.`),
+    (n) => `${n} Rakete`, (n) => `${n} Rocket`, "rocketWords",
+    (n) => `Bringe insgesamt ${n} Wörter dieser Sprache auf Raketen-Tempo (mind. 2× richtig bei ≤500ms).`,
+    (n) => `Bring a total of ${n} words in this language to rocket speed (at least 2 correct answers at ≤500ms).`),
   { id: "j9", cat: "gold", icon: "🥇", de: "Gold!", en: "Gold!",
     deDesc: "Bringe eine ganze Stufe auf Raketen-Tempo — alle 20 Wörter gemeistert UND auf Raketen-Tempo bestätigt.",
     enDesc: "Bring an entire level to rocket speed — all 20 words mastered AND confirmed at rocket speed.",
-    check: (S) => S.goldLevelsCombined >= 1 },
+    check: (S) => S.goldLevels >= 1 },
   { id: "j10", cat: "gold", icon: "🥇", de: "Alles Gold!", en: "All Gold!",
-    deDesc: "Bringe alle 10 Stufen einer Sprache komplett auf Raketen-Tempo.", enDesc: "Bring all 10 levels of one language fully to rocket speed.",
-    check: (S) => S.anyAllGold },
+    deDesc: "Bringe alle 10 Stufen dieser Sprache komplett auf Raketen-Tempo.", enDesc: "Bring all 10 levels of this language fully to rocket speed.",
+    check: (S) => S.allGold },
 
   /* K — Vokal-Blitz. Deliberately not another volume ladder bolted on: two
      entry badges, three volume steps, then streak, breadth, two perfect-round
@@ -1071,78 +1073,120 @@ const ACHIEVEMENTS = [
     check: (S) => S.lPairsRetired >= 1 }
 ];
 
-/* aggregates everything the 120 checks read, from the two language
-   blobs plus the small extras (streaks/speeds/etc.) that don't live
-   anywhere else since they're achievement-specific bookkeeping */
-function computeStats(data, ach) {
-  const words = (L) => Object.values(L.words);
-  const de = data.de, en = data.en;
-  const wde = words(de), wen = words(en);
-  const totalAttempts = wde.reduce((a, w) => a + w.r + w.wr, 0) + wen.reduce((a, w) => a + w.r + w.wr, 0);
-  const totalCorrect = wde.reduce((a, w) => a + w.r, 0) + wen.reduce((a, w) => a + w.r, 0);
+/* Everything the checks read, for ONE language. Each language keeps its own
+   gallery of 120, so a badge means "he did this in German" or "he did this in
+   English" and never a blur of the two. `S` therefore reports that language's
+   words, levels, mini-game records and bookkeeping.
+
+   The exceptions are marked `shared: true` on the badge and are the reason the
+   *other* language's blob is still passed in: practice minutes, the day streak,
+   "Zwei Sprachen!" and "Alles offen!" are not claims about reading a particular
+   language. Time at the iPad is time at the iPad, so those stay pooled and land
+   in both galleries at once. */
+function computeStats(data, ach, lang) {
+  const other = lang === "de" ? "en" : "de";
+  const L = data[lang], O = data[other];
+  const list = LISTS[lang], oList = LISTS[other];
+  const b = ach[lang] || {};
+  const w = Object.values(L.words);
+  const totalAttempts = w.reduce((a, x) => a + x.r + x.wr, 0);
+  const totalCorrect = w.reduce((a, x) => a + x.r, 0);
   const today = tISO();
-  const minutesToday = (((de.days[today] || {}).s || 0) + ((en.days[today] || {}).s || 0)) / 60;
-  const reachDe = reachLevel(de, LISTS.de), reachEn = reachLevel(en, LISTS.en);
-  const starDe = starLevel(de, LISTS.de), starEn = starLevel(en, LISTS.en);
-  const lvl10Done = (L, list) => levelStats(L, list)[list.length - 1].mastered >= Math.ceil(list[list.length - 1].length * 0.9);
+  const lvl10Done = (X, xl) => levelStats(X, xl)[xl.length - 1].mastered >= Math.ceil(xl[xl.length - 1].length * 0.9);
+  const st = starLevel(L, list);
   return {
     totalAttempts, totalCorrect, totalWrong: totalAttempts - totalCorrect,
-    masteredCombined: wde.filter((w) => w.s === 2).length + wen.filter((w) => w.s === 2).length,
-    minutesToday,
-    bestStreakDays: Math.max(calcStreak(de.days), calcStreak(en.days)),
-    reachMax: Math.max(reachDe, reachEn),
-    bothReach10: reachDe === 10 && reachEn === 10,
-    starMax: Math.max(starDe, starEn),
-    fullCurriculumDone: (starDe === 10 && lvl10Done(de, LISTS.de)) || (starEn === 10 && lvl10Done(en, LISTS.en)),
-    rocketWordsCombined: wde.filter((w) => w.tn && tiOf(w.tn) === 2).length + wen.filter((w) => w.tn && tiOf(w.tn) === 2).length,
-    goldLevelsCombined: LISTS.de.filter((lvl) => isGoldLevel(de, lvl)).length + LISTS.en.filter((lvl) => isGoldLevel(en, lvl)).length,
-    anyAllGold: LISTS.de.every((lvl) => isGoldLevel(de, lvl)) || LISTS.en.every((lvl) => isGoldLevel(en, lvl)),
-    bothTried: wde.some((w) => w.r + w.wr > 0) && wen.some((w) => w.r + w.wr > 0),
-    bestStreakEver: ach.bestStreak || 0,
-    perfectSpeeds: ach.perfectSpeeds || {},
-    hadPerfectChunk: Object.keys(ach.perfectSpeeds || {}).length > 0,
-    chunksDone: ach.chunksDone || 0,
-    speedChanged: !!ach.speedChanged,
-    /* mini-game totals. Per-word `vk` for vowels, per-language `lp` for letter
-       pairs, both summed across the two languages like every other counter
-       here. Round-level facts (rounds finished, perfect rounds, best streak)
-       cannot be recovered from the stored records, so they are kept in `ach`
-       alongside chunksDone. */
-    ...miniStats(de, en, ach)
+    masteredWords: w.filter((x) => x.s === 2).length,
+    reach: reachLevel(L, list),
+    star: st,
+    fullCurriculumDone: st === 10 && lvl10Done(L, list),
+    rocketWords: w.filter((x) => x.tn && tiOf(x.tn) === 2).length,
+    goldLevels: list.filter((lvl) => isGoldLevel(L, lvl)).length,
+    allGold: list.every((lvl) => isGoldLevel(L, lvl)),
+    bestStreakEver: b.bestStreak || 0,
+    perfectSpeeds: b.perfectSpeeds || {},
+    hadPerfectChunk: Object.keys(b.perfectSpeeds || {}).length > 0,
+    chunksDone: b.chunksDone || 0,
+    speedChanged: !!b.speedChanged,
+
+    /* pooled — the `shared` badges read these */
+    minutesToday: (((L.days[today] || {}).s || 0) + ((O.days[today] || {}).s || 0)) / 60,
+    bestStreakDays: Math.max(calcStreak(L.days), calcStreak(O.days)),
+    bothTried: w.some((x) => x.r + x.wr > 0) && Object.values(O.words).some((x) => x.r + x.wr > 0),
+    bothReach10: reachLevel(L, list) === 10 && reachLevel(O, oList) === 10,
+
+    /* mini-game totals. `vk` sits on each word and `lp` on the language blob,
+       so both are already per-language. Round-level facts (rounds finished,
+       perfect rounds, best run) cannot be recovered from the stored records,
+       so they live in that language's bookkeeping alongside chunksDone. */
+    ...miniStats(L, b)
   };
 }
-function miniStats(de, en, ach) {
+function miniStats(L, b) {
   let vTotal = 0, vCorrect = 0, vWords = 0;
-  [de, en].forEach((L) => Object.values(L.words).forEach((w) => {
+  Object.values(L.words).forEach((w) => {
     if (!w.vk) return;
     const n = (w.vk.r || 0) + (w.vk.wr || 0);
     if (!n) return;
     vTotal += n; vCorrect += w.vk.r || 0; vWords++;
-  }));
+  });
   let lTotal = 0, lCorrect = 0, lPairsRetired = 0;
-  [de, en].forEach((L) => Object.entries(L.lp || {}).forEach(([key, rec]) => {
+  Object.entries(L.lp || {}).forEach(([key, rec]) => {
     lTotal += (rec.r || 0) + (rec.wr || 0); lCorrect += rec.r || 0;
     if (pairRetired(L, key)) lPairsRetired++;
-  }));
+  });
   return {
     vTotal, vCorrect, vWords, lTotal, lCorrect, lPairsRetired,
-    vRounds: ach.vRounds || 0, vPerfect: ach.vPerfect || 0, vBest: ach.vBest || 0,
-    lRounds: ach.lRounds || 0, lPerfect: ach.lPerfect || 0, lBest: ach.lBest || 0
+    vRounds: b.vRounds || 0, vPerfect: b.vPerfect || 0, vBest: b.vBest || 0,
+    lRounds: b.lRounds || 0, lPerfect: b.lPerfect || 0, lBest: b.lBest || 0
   };
 }
-const freshAch = () => ({
+/* one language's gallery plus the bookkeeping only the checks use */
+const freshSet = () => ({
   unlocked: {}, seen: {}, bestStreak: 0, perfectSpeeds: {}, chunksDone: 0, speedChanged: false,
   vRounds: 0, vPerfect: 0, vBest: 0, lRounds: 0, lPerfect: 0, lBest: 0
 });
-/* Which badges he has not looked at yet. `seen` is marked on *leaving* the
-   badge screen, never on entering it — mark on entry and the star would be
-   cleared by the very act of going to look for it. */
-const unseenAch = (ach) => ACHIEVEMENTS.filter((a) => ach.unlocked[a.id] && !(ach.seen || {})[a.id]);
-/* returns the list of achievement objects that just became true and
-   weren't already unlocked — caller merges these into ach.unlocked */
-function checkNewUnlocks(data, ach) {
-  const S = computeStats(data, ach);
-  return ACHIEVEMENTS.filter((a) => !ach.unlocked[a.id] && a.check(S));
+const freshAch = () => ({ v: 3, de: freshSet(), en: freshSet() });
+const otherLang = (l) => (l === "de" ? "en" : "de");
+const setBook = (ach, lg, patch) => ({ ...ach, [lg]: { ...ach[lg], ...patch } });
+
+/* Saves written before the split hold a single flat gallery. Everything in it
+   was earned reading German, so it becomes the German set unchanged, unlock
+   dates and all: nothing is re-evaluated and nothing is ever taken away.
+   English starts empty apart from the shared badges, which are already true of
+   him — those are copied across with their original dates and marked seen,
+   because otherwise the first check after the update would fire twenty-odd
+   toasts at him in a row for things he earned weeks ago.
+
+   Same reasoning as the `seen` seeding this replaces, and the same rule: the
+   result is written back to storage immediately, never left in memory only. */
+function migrateAch(saved) {
+  if (!saved) return freshAch();
+  if (saved.unlocked) {
+    const de = { ...freshSet(), ...saved };
+    delete de.v;
+    if (!saved.seen) {
+      de.seen = {};
+      Object.keys(de.unlocked).forEach((id) => { de.seen[id] = true; });
+    }
+    const en = freshSet();
+    ACHIEVEMENTS.filter((a) => a.shared).forEach((a) => {
+      if (de.unlocked[a.id]) { en.unlocked[a.id] = de.unlocked[a.id]; en.seen[a.id] = true; }
+    });
+    return { v: 3, de, en };
+  }
+  return { v: 3, de: { ...freshSet(), ...(saved.de || {}) }, en: { ...freshSet(), ...(saved.en || {}) } };
+}
+/* Which badges he has not looked at yet, in one gallery. `seen` is marked on
+   *leaving* the badge screen, never on entering it — mark on entry and the star
+   would be cleared by the very act of going to look for it. */
+const unseenSet = (ach, lg) => ACHIEVEMENTS.filter((a) => ach[lg].unlocked[a.id] && !(ach[lg].seen || {})[a.id]);
+const unseenAny = (ach) => unseenSet(ach, "de").length + unseenSet(ach, "en").length;
+/* returns the achievement objects that just became true in `lang`'s gallery and
+   weren't already unlocked there — caller merges these into that set */
+function checkNewUnlocks(data, ach, lang) {
+  const S = computeStats(data, ach, lang);
+  return ACHIEVEMENTS.filter((a) => !ach[lang].unlocked[a.id] && a.check(S));
 }
 
 /* ----------------------------- audio ---------------------------- */
@@ -1369,6 +1413,7 @@ function tryUrlImport() {
     const obj = JSON.parse(b64decode(raw));
     if (obj.de) persist("sr.de", migrate(obj.de));
     if (obj.en) persist("sr.en", migrate(obj.en));
+    if (obj.ach) persist("sr.ach", migrateAch(obj.ach));
     if (obj.meta) persist("sr.meta", obj.meta);
     const url = new URL(window.location.href);
     url.searchParams.delete("import");
@@ -1596,6 +1641,7 @@ export default function App() {
   const [ach, setAch] = useState(freshAch());
   const [unlockQueue, setUnlockQueue] = useState([]);
   const [selectedAch, setSelectedAch] = useState(null);
+  const [achLang, setAchLang] = useState("de");        // which gallery is open
   const [voiceURIs, setVoiceURIs] = useState({});
   const [speechRate, setSpeechRate] = useState(1.0);
   const [speechPitch, setSpeechPitch] = useState(1.0);
@@ -1618,6 +1664,10 @@ export default function App() {
   const pendingLvl = useRef(null);
   const saveT = useRef({});
   const backRef = useRef("home");
+  /* which galleries he actually looked at this visit — only those get marked
+     seen on the way out. Toggling to English and back must not clear the stars
+     on badges he never scrolled to. */
+  const achViewed = useRef(new Set());
   const chunkRef = useRef({ q: 0, right: 0, coins: 0, sec: 0, mast: [], reach0: 1 });
   const modeRef = useRef({ t: "normal", lvl: 0 });
   const pendingGold = useRef(null);
@@ -1627,9 +1677,18 @@ export default function App() {
      queues them for the unlock toast — called after anything that
      could move a stat: an answer, a chunk ending, a speed change */
   const runAchCheck = (newData) => {
-    const newly = checkNewUnlocks(newData, achRef.current);
-    const updated = { ...achRef.current, unlocked: { ...achRef.current.unlocked } };
-    newly.forEach((a) => { updated.unlocked[a.id] = tISO(); });
+    const active = langRef.current, other = otherLang(active);
+    const stamp = (set, list) => ({ unlocked: { ...set.unlocked, ...Object.fromEntries(list.map((a) => [a.id, tISO()])) } });
+    let updated = achRef.current;
+    const newly = checkNewUnlocks(newData, updated, active);
+    if (newly.length) updated = setBook(updated, active, stamp(updated[active], newly));
+    /* The pooled badges — minutes, day streak, both-languages — become true in
+       the other gallery at the same instant, so they are unlocked there too but
+       silently: the toast belongs to the game he is actually playing, and one
+       badge popping up twice would read as a bug. The trophy star sends him to
+       the other gallery to find it. */
+    const alsoOther = checkNewUnlocks(newData, updated, other).filter((a) => a.shared);
+    if (alsoOther.length) updated = setBook(updated, other, stamp(updated[other], alsoOther));
     achRef.current = updated;
     setAch(updated);
     persist("sr.ach", updated);
@@ -1651,18 +1710,11 @@ export default function App() {
         if (typeof meta.speechPitch === "number") setSpeechPitch(meta.speechPitch);
       }
       const [de, en, savedAch] = await Promise.all([sget("sr.de"), sget("sr.en"), sget("sr.ach")]);
-      const loadedAch = { ...freshAch(), ...(savedAch || {}) };
-      if (savedAch && !savedAch.seen) {
-        /* first run after the "new badge" star shipped: everything already
-           earned counts as seen, otherwise the whole wall lights up at once
-           and the star means nothing on the one occasion it matters most */
-        loadedAch.seen = {};
-        Object.keys(loadedAch.unlocked).forEach((id) => { loadedAch.seen[id] = true; });
-        /* written back immediately. Left in memory only, this would re-run on
-           every load, and by the second load `unlocked` would contain badges
-           earned since — which would then be silently marked as already seen. */
-        persist("sr.ach", loadedAch);
-      }
+      const loadedAch = migrateAch(savedAch);
+      /* written back at once. Left in memory only, the seeding would re-run on
+         every load, and by the second load the German set would contain badges
+         earned since — which would then be silently marked as already seen. */
+      if (!savedAch || savedAch.v !== 3) persist("sr.ach", loadedAch);
       setAch(loadedAch);
       setData({ de: migrate(de), en: migrate(en) });
       setPhase("home");
@@ -1783,7 +1835,7 @@ export default function App() {
     dataRef.current = newData; setData(newData); scheduleSave(lg);
     lScore.current = { r: lScore.current.r + (ok ? 1 : 0), n: lScore.current.n + 1 };
     lRun.current = ok ? lRun.current + 1 : 0;
-    if (lRun.current > (achRef.current.lBest || 0)) achRef.current = { ...achRef.current, lBest: lRun.current };
+    if (lRun.current > (achRef.current[lg].lBest || 0)) achRef.current = setBook(achRef.current, lg, { lBest: lRun.current });
     runAchCheck(newData);
     if (sndRef.current) { ok ? (lBonus ? sfx.bonus() : sfx.ok()) : sfx.no(); }
     setLfb({ ok, chosen: opt });
@@ -1794,11 +1846,11 @@ export default function App() {
   const letterNext = () => {
     if (li + 1 >= lq.length) {
       const { r, n } = lScore.current;
-      achRef.current = {
-        ...achRef.current,
-        lRounds: (achRef.current.lRounds || 0) + 1,
-        lPerfect: (achRef.current.lPerfect || 0) + (n >= 10 && r === n ? 1 : 0)
-      };
+      const lg = langRef.current;
+      achRef.current = setBook(achRef.current, lg, {
+        lRounds: (achRef.current[lg].lRounds || 0) + 1,
+        lPerfect: (achRef.current[lg].lPerfect || 0) + (n >= 10 && r === n ? 1 : 0)
+      });
       runAchCheck(dataRef.current);
       setPhase("ldone"); return;
     }
@@ -1844,7 +1896,7 @@ export default function App() {
     scheduleSave(lg);
     vScore.current = { r: vScore.current.r + (ok ? 1 : 0), n: vScore.current.n + 1 };
     vRun.current = ok ? vRun.current + 1 : 0;
-    if (vRun.current > (achRef.current.vBest || 0)) achRef.current = { ...achRef.current, vBest: vRun.current };
+    if (vRun.current > (achRef.current[lg].vBest || 0)) achRef.current = setBook(achRef.current, lg, { vBest: vRun.current });
     runAchCheck(newData);
     if (sndRef.current) { ok ? (vBonus ? sfx.bonus() : sfx.ok()) : sfx.no(); }
     setVfb({ ok, chosen: opt });
@@ -1854,11 +1906,11 @@ export default function App() {
   const vowelNext = () => {
     if (vi + 1 >= vq.length) {
       const { r, n } = vScore.current;
-      achRef.current = {
-        ...achRef.current,
-        vRounds: (achRef.current.vRounds || 0) + 1,
-        vPerfect: (achRef.current.vPerfect || 0) + (n >= 10 && r === n ? 1 : 0)
-      };
+      const lg = langRef.current;
+      achRef.current = setBook(achRef.current, lg, {
+        vRounds: (achRef.current[lg].vRounds || 0) + 1,
+        vPerfect: (achRef.current[lg].vPerfect || 0) + (n >= 10 && r === n ? 1 : 0)
+      });
       runAchCheck(dataRef.current);
       setPhase("vdone"); return;
     }
@@ -1890,11 +1942,12 @@ export default function App() {
       if (ch.sec >= CHUNK_SEC || ch.q >= CHUNK_Q) {
         flush();
         const perfect = ch.q >= 10 && ch.right === ch.q;
-        const a2 = { ...achRef.current, chunksDone: (achRef.current.chunksDone || 0) + 1 };
+        const lg = langRef.current;
+        const bk = { chunksDone: (achRef.current[lg].chunksDone || 0) + 1 };
         if (modeRef.current.t !== "turbo" && perfect) {
-          a2.perfectSpeeds = { ...a2.perfectSpeeds, [speedRef.current]: true };
+          bk.perfectSpeeds = { ...achRef.current[lg].perfectSpeeds, [speedRef.current]: true };
         }
-        achRef.current = a2;
+        achRef.current = setBook(achRef.current, lg, bk);
         runAchCheck(dataRef.current);
         setPhrase([CHEER[Math.floor(Math.random() * CHEER.length)],
                    PHRASES[langRef.current][Math.floor(Math.random() * PHRASES[langRef.current].length)]]);
@@ -1970,7 +2023,7 @@ export default function App() {
       const mult = acc >= 0.8 ? (dm <= 350 ? 3 : dm <= 700 ? 2 : 1) : 1;
       earned += mult;
       runRef.current++;
-      if (runRef.current > achRef.current.bestStreak) achRef.current = { ...achRef.current, bestStreak: runRef.current };
+      if (runRef.current > achRef.current[lang].bestStreak) achRef.current = setBook(achRef.current, lang, { bestStreak: runRef.current });
       if (runRef.current % 10 === 0) earned += 5;        // streak bonus
     } else {
       ws.wr++;
@@ -2015,13 +2068,21 @@ export default function App() {
   const afterLevelUp = () => { setNewLvl(null); startChunk(); };
   const openStack = (from) => { backRef.current = from; setShowData(false); setPhase("stack"); };
   const openParent = () => { setDashLang(lang); setShowData(false); setImportText(""); setImportMsg(null); setLinkOut(""); setPhase("parent"); };
-  const openAch = (from) => { backRef.current = from; setSelectedAch(null); setPhase("achievements"); };
+  const openAch = (from) => {
+    backRef.current = from; setSelectedAch(null);
+    setAchLang(lang); achViewed.current = new Set([lang]);
+    setPhase("achievements");
+  };
+  const switchAchLang = (l) => { setAchLang(l); achViewed.current.add(l); setSelectedAch(null); };
   /* Marking happens here, on the way out. He has now had the chance to look at
      every star on the screen; the next one he earns will be the only one lit. */
   const closeAch = () => {
-    const seen = { ...(achRef.current.seen || {}) };
-    Object.keys(achRef.current.unlocked).forEach((id) => { seen[id] = true; });
-    const updated = { ...achRef.current, seen };
+    let updated = achRef.current;
+    achViewed.current.forEach((lg) => {
+      const seen = { ...(updated[lg].seen || {}) };
+      Object.keys(updated[lg].unlocked).forEach((id) => { seen[id] = true; });
+      updated = setBook(updated, lg, { seen });
+    });
     achRef.current = updated;
     setAch(updated);
     persist("sr.ach", updated);
@@ -2103,8 +2164,10 @@ export default function App() {
             <input className="spd" type="range" min={0} max={9} step={1} value={speed}
               onChange={(e) => {
                 setSpeed(Number(e.target.value));
-                if (!achRef.current.speedChanged) {
-                  achRef.current = { ...achRef.current, speedChanged: true };
+                /* the slider is one global setting, so this lands in the
+                   gallery of the language he is looking at right now */
+                if (!achRef.current[lang].speedChanged) {
+                  achRef.current = setBook(achRef.current, lang, { speedChanged: true });
                   runAchCheck(dataRef.current);
                 }
               }} />
@@ -2148,10 +2211,10 @@ export default function App() {
             <span style={{
               position: "absolute", bottom: -18, right: -22, background: C.gold, color: "#fff",
               fontSize: 11, fontWeight: 900, borderRadius: 10, padding: "1px 6px", border: "2px solid #fff"
-            }}>{Object.keys(ach.unlocked).length}</span>
+            }}>{Object.keys(ach[lang].unlocked).length}</span>
             {/* something new is waiting in there. Additive: the count keeps
                 meaning "how many you have", the star means "go and look". */}
-            {unseenAch(ach).length > 0 && (
+            {unseenAny(ach) > 0 && (
               <span data-new="trophy" style={{
                 position: "absolute", top: -20, left: -20, fontSize: 19,
                 animation: "bwBreathe 1.4s ease-in-out infinite"
@@ -2422,7 +2485,9 @@ export default function App() {
     const overallAcc = totalAttempts ? Math.round((totalCorrect / totalAttempts) * 100) : 0;
     const masteredTotal = Object.values(PL.words).filter((w) => w.s === 2).length;
     const totalWordsN = plist.reduce((a, l) => a + l.length, 0);
-    const fullExport = JSON.stringify({ de: data.de, en: data.en, meta: { lang, speed, snd } });
+    /* Badges travel with the words. Leaving them out meant a device move wiped
+       every award he had earned while the reading progress arrived intact. */
+    const fullExport = JSON.stringify({ de: data.de, en: data.en, ach, meta: { lang, speed, snd } });
 
     return (
       <div className="bw" style={{ ...wrap, alignItems: "stretch", padding: 14, gap: 12, overflowY: "auto" }}>
@@ -2740,7 +2805,7 @@ export default function App() {
         <div style={{ ...cardSt, padding: 14 }}>
           <div style={{ fontWeight: 800, marginBottom: 4, fontSize: 15 }}>Daten übertragen</div>
           <div style={{ fontSize: 12, color: "#8CA0B5", marginBottom: 10 }}>
-            Hier exportieren, in der neuen Version einfügen und dort importieren. Enthält beide Sprachen.
+            Hier exportieren, in der neuen Version einfügen und dort importieren. Enthält beide Sprachen und alle Abzeichen.
           </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <button onClick={() => { setShowData(!showData); setImportMsg(null); }} style={{
@@ -2800,6 +2865,7 @@ export default function App() {
                 if (!obj || (!obj.de && !obj.en)) { setImportMsg("Kein gültiges Export-Format erkannt."); return; }
                 if (obj.de) persist("sr.de", migrate(obj.de));
                 if (obj.en) persist("sr.en", migrate(obj.en));
+                if (obj.ach) persist("sr.ach", migrateAch(obj.ach));
                 if (obj.meta) persist("sr.meta", obj.meta);
                 setImportMsg("Importiert — lädt neu …");
                 setTimeout(() => window.location.reload(), 700);
@@ -2817,8 +2883,9 @@ export default function App() {
 
   /* ------------------------- achievements gallery ------------------ */
   if (phase === "achievements") {
-    const unlockedCount = Object.keys(ach.unlocked).length;
-    const newCount = unseenAch(ach).length;
+    const set = ach[achLang];
+    const unlockedCount = Object.keys(set.unlocked).length;
+    const newCount = unseenSet(ach, achLang).length;
     return (
       <div className="bw" style={{ ...wrap, alignItems: "stretch", padding: 14, gap: 14, overflowY: "auto" }}>
         <style>{css}</style>
@@ -2826,7 +2893,21 @@ export default function App() {
           <button onClick={closeAch} className="bigbtn"
             style={{ ...cardSt, width: 56, height: 56, fontSize: 24, borderRadius: 18, cursor: "pointer" }}>⬅</button>
           <span style={{ fontSize: 30 }}>🏆</span>
-          <div style={{ fontSize: 20, fontWeight: 900 }}>{S.ach}</div>
+          {/* One gallery per language. The flags are the label: he cannot read
+              "Deutsch" mid-game but he knows which flag he plays under, and it
+              is the same pair he taps on the start screen. */}
+          {["de", "en"].map((l) => (
+            <button key={l} onClick={() => switchAchLang(l)} className="bigbtn" style={{
+              ...cardSt, width: 54, height: 54, fontSize: 26, borderRadius: 18, cursor: "pointer",
+              borderColor: l === achLang ? C.blue : C.ink, borderWidth: l === achLang ? 5 : 3,
+              opacity: l === achLang ? 1 : 0.55, position: "relative"
+            }}>
+              {l === "de" ? "🇩🇪" : "🇬🇧"}
+              {unseenSet(ach, l).length > 0 && (
+                <span data-new={`flag-${l}`} style={{ position: "absolute", top: -8, right: -8, fontSize: 15 }}>⭐</span>
+              )}
+            </button>
+          ))}
           <div style={{ flex: 1 }} />
           <div style={{ ...cardSt, padding: "8px 16px", fontSize: 18, fontWeight: 800, borderRadius: 18, background: "#FFF3D6", color: "#8A5A00" }}>
             {unlockedCount}/{ACHIEVEMENTS.length}
@@ -2841,27 +2922,27 @@ export default function App() {
 
         {CAT_ORDER.map((c) => {
           const items = ACHIEVEMENTS.filter((a) => a.cat === c);
-          const gotN = items.filter((a) => ach.unlocked[a.id]).length;
+          const gotN = items.filter((a) => set.unlocked[a.id]).length;
           return (
             <div key={c} style={{ ...cardSt, padding: 14 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
                 <span style={{ fontSize: 19, fontWeight: 800 }}>{CAT_NAMES[c][lang === "de" ? 0 : 1]}</span>
                 <span style={{ fontSize: 14, fontWeight: 700, color: "#8CA0B5" }}>{gotN}/{items.length}</span>
-                {items.some((a) => ach.unlocked[a.id] && !(ach.seen || {})[a.id]) && (
+                {items.some((a) => set.unlocked[a.id] && !(set.seen || {})[a.id]) && (
                   <span style={{ fontSize: 15 }}>⭐</span>
                 )}
               </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 12, justifyContent: "flex-start" }}>
                 {items.map((a) => (
-                  <Badge key={a.id} a={a} unlocked={!!ach.unlocked[a.id]}
-                    isNew={!!ach.unlocked[a.id] && !(ach.seen || {})[a.id]}
+                  <Badge key={a.id} a={a} unlocked={!!set.unlocked[a.id]}
+                    isNew={!!set.unlocked[a.id] && !(set.seen || {})[a.id]}
                     lang={lang} onTap={setSelectedAch} />
                 ))}
               </div>
             </div>
           );
         })}
-        <AchievementInfo a={selectedAch} unlockedOn={selectedAch ? ach.unlocked[selectedAch.id] : null} lang={lang} onClose={() => setSelectedAch(null)} />
+        <AchievementInfo a={selectedAch} unlockedOn={selectedAch ? set.unlocked[selectedAch.id] : null} lang={lang} onClose={() => setSelectedAch(null)} />
       </div>
     );
   }

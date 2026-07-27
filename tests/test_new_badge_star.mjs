@@ -34,7 +34,8 @@ const html_ = () => window.document.getElementById("root").innerHTML;
 // ⭐ is already the glyph for star level on the language cards, so counting the
 // character finds the wrong things. The markers carry data-new.
 const stars = () => window.document.querySelectorAll('[data-new]').length;
-const stored = () => JSON.parse(window.localStorage.getItem("sr.ach") || "{}");
+// one gallery per language; everything played here is German
+const stored = () => (JSON.parse(window.localStorage.getItem("sr.ach") || "{}").de) || {};
 const trophy = () => btns().find((b) => /🏆/.test(b.textContent));
 const openBadges = () => tap(trophy());
 const back = () => tap(btns().find((b) => b.textContent.trim() === "⬅"));
@@ -102,7 +103,10 @@ delete w2.storage;
 w2.localStorage.setItem("sr.ach", JSON.stringify(legacy));
 await sleep(600);
 const legacyStars = w2.document.querySelectorAll('[data-new]').length;
-const legacySeen = Object.keys(JSON.parse(w2.localStorage.getItem("sr.ach")).seen || {}).length;
+const legacySaved = JSON.parse(w2.localStorage.getItem("sr.ach"));
+const legacySeen = Object.keys(legacySaved.de.seen || {}).length;
+const legacyKept = Object.keys(legacySaved.de.unlocked || {}).length;
+console.log("legacy badges kept, now German:", legacyKept);
 console.log("legacy save — stars on the start screen:", legacyStars, "| pre-seeded as seen:", legacySeen);
 
 console.log("uncaught errors:", errs.length);
@@ -120,6 +124,7 @@ check("leaving marks them seen", seenAfter === unlockedNow);
 check("the trophy star clears once seen", homeStarAfter === 0);
 check("no stars on the next visit", starsOnRevisit === 0);
 check("a legacy save without a seen map does not light up", legacyStars === 0 && legacySeen === 3);
+check("a legacy save keeps all three badges, as German ones", legacyKept === 3);
 check("no uncaught errors", errs.length === 0);
 
 window.close(); w2.close();

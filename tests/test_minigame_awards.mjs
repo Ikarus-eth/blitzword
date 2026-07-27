@@ -97,7 +97,8 @@ const tallies = txt.match(/\d+\/10(?!\d)/g) || [];
 console.log("categories reporting a denominator of 10:", tallies.length);
 
 // l10 must be unlocked for the retired pair, and not for the struggling one
-const stored = (w) => JSON.parse(w.localStorage.getItem("sr.ach") || "{}").unlocked || {};
+// the seeded progress is German, so the mini-game badges land in that gallery
+const stored = (w) => ((JSON.parse(w.localStorage.getItem("sr.ach") || "{}").de) || {}).unlocked || {};
 const gotGood = stored(window);
 const gotBad = stored(bad.window);
 console.log("unlocked in the retired run:", JSON.stringify(Object.keys(gotGood).filter((k) => /^[kl]/.test(k)).sort()));

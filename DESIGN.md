@@ -277,9 +277,52 @@ Two rules make it safe:
 
 ## Achievements
 
-100 badges: 10 categories × 10 tiers (first-time events, correct-in-a-row, questions
+120 badges: 12 categories × 10 tiers (first-time events, correct-in-a-row, questions
 answered, words mastered, daily minutes, day streak, perfect-at-each-speed, practice
-levels, levels mastered, turbo/gold).
+levels, levels mastered, turbo/gold, plus one category per mini-game).
+
+### One gallery per language
+
+Each language has its own set of the same 120, scored only on that language's
+words, levels, mini-game records and bookkeeping. A badge therefore means "he did
+this in German" or "he did this in English" and never a blur of the two. Without
+the split, starting English would have handed him most of a gallery on day one for
+German work, and the badges would have stopped saying anything about English.
+
+Twenty-three badges are marked `shared` and stay pooled across both languages:
+the ten daily-minute tiers, the ten day-streak tiers, "Erster Tag!", "Zwei
+Sprachen!" and "Alles offen!". None of them is a claim about reading a particular
+language — time at the iPad is time at the iPad, and the last two are *defined*
+across both, so a per-language "all levels open" would only duplicate the Stufe-10
+badge. Shared badges unlock in both galleries at the same moment. Only the
+gallery of the language he is actually playing gets a toast; one badge popping up
+twice reads as a bug, and the trophy star sends him to the other gallery to find
+it.
+
+`sr.ach` is `{ v: 3, de: {...}, en: {...} }`, each set holding `unlocked`, `seen`
+and the achievement-only counters (`bestStreak`, `perfectSpeeds`, `chunksDone`,
+`speedChanged`, and the two mini-games' round tallies). Those counters used to be
+global; per-language evaluation is meaningless while they are not.
+
+**Migration.** A save written before the split has one flat gallery, all of it
+earned in German, so it becomes the German set unchanged — unlock dates, streak
+records and all. Nothing is re-evaluated and nothing is taken away. English starts
+empty apart from the shared badges he already holds, which are copied across with
+their original dates **and marked seen**. Left unseen they would arrive as twenty
+toasts in a row for things he earned weeks ago, on the first launch after the
+update. Written back to storage immediately, for the same reason the `seen`
+seeding is.
+
+**Leaving the badge screen marks only the galleries he actually opened.** The
+screen remembers which flags were tapped during the visit. Marking both would
+clear the stars on a gallery he never looked at, which is the same mistake as
+marking on entry.
+
+### Export
+
+The export carries `de`, `en`, `ach` and `meta`. Badges were left out originally,
+so moving to a new device restored every word and every level while silently
+wiping the entire trophy case.
 
 - **Titles are 1–3 short common words** ("5 Treffer!", "Gold!") because the child
   reads them himself in a toast during play. Tapping any badge opens the full
@@ -345,7 +388,7 @@ obvious implementation and is exactly wrong: the star would be cleared by the
 act of going to look for it, so a badge earned between visits would never once
 be seen marked. Leaving the screen marks everything currently unlocked as seen.
 
-`ach.seen` is a plain id→true map rather than a timestamp — a "last viewed"
+`seen` is a plain id→true map rather than a timestamp — a "last viewed"
 time has to reason about same-second unlocks and a device clock that can move
 backwards, and buys nothing here.
 
@@ -362,7 +405,7 @@ attribute is what the test selects on.
 
 ### Mini-game badges
 
-Each mini-game carries its own 10, bringing the total to 120. Both follow the
+Each mini-game carries its own 10, bringing the total to 120 per language. Both follow the
 same shape: two entry badges (first answer, first completed round), a four-step
 volume ladder, a streak, a breadth or perfect-round badge, and one quality
 badge that cannot be won by rushing.
