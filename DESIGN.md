@@ -235,6 +235,24 @@ errors across those two pairs, 21 of them b/d, against 683 total answers.
 - Daily flame streak requires ≥10 min active practice.
 - **Coins only ever accumulate.** No shop yet, nothing is ever taken away.
 
+**All three games credit the same day record.** The ⏱ ring and the flame both
+read `days[today].s`, and every answer handler adds its active time through
+`creditDay()`, which also pays the two minute milestones. The milestone check
+used to sit inline in the reading loop, so mini-game minutes slid the ring past
+15 and 25 without paying, and a day that ended inside a mini-game lost the bonus
+for good. The b/d drill also credits its flash as well as the response window,
+exactly as the reading loop credits `DUR` plus the response: crediting only the
+response made a minute of the remedial drill worth less than a minute of
+reading — worst at turtle speed, where the flash *is* most of the item — and
+that is the drill he gets sent to when reading is going badly.
+`test_daily_credit` asserts both, and fails if the day record is inlined back
+into one handler.
+
+This is not in tension with the rule that a mini-game must not touch
+`s`/`cc`/`iv`/`due`/`h`. Those fields are claims about *reading a word*, which a
+vowel or letterform answer is no evidence for. Minutes on task are not a claim
+about any word, and time spent is time spent whichever button he pressed.
+
 ## Speed tiers — mastery quality, not just quantity
 
 Every correct answer logs evidence at its tier: 🐢 ≥2500 ms, 🏃 700–1500 ms,

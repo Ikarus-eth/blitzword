@@ -648,6 +648,22 @@ function trimDays(days) {
   const ks = Object.keys(days).sort();
   while (ks.length > 60) delete days[ks.shift()];
 }
+/* One answered question in any of the three games credits its active time to
+   today's record and pays the daily minute milestones. All three call this.
+   It used to be written inline in the reading loop only, so a mini-game answer
+   moved the ⏱ ring and the flame — both read `days[today].s` — but could never
+   trigger the 15/25-minute bonuses, and a day finished inside a mini-game lost
+   them for good. The same minute must be worth the same wherever it was spent.
+   Returns the milestone coins this answer earned. */
+function creditDay(L, sec) {
+  const day = L.days[tISO()] || (L.days[tISO()] = { s: 0, b1: 0, b2: 0 });
+  day.s += sec;
+  let bonus = 0;
+  if (day.s >= 900 && !day.b1) { day.b1 = 1; bonus += 10; }
+  if (day.s >= 1500 && !day.b2) { day.b2 = 1; bonus += 25; }
+  trimDays(L.days);
+  return bonus;
+}
 function calcStreak(days) {
   let n = 0;
   const d = new Date();
@@ -1755,16 +1771,21 @@ export default function App() {
     const rec = L.lp[key] || (L.lp[key] = { r: 0, wr: 0, h: [] });
     if (ok) { rec.r++; L.coins += 1; } else rec.wr++;
     rec.h = [...(rec.h || []), ok ? 1 : 0].slice(-PAIR_RETIRE_N);
-    const day = L.days[tISO()] || (L.days[tISO()] = { s: 0, b1: 0, b2: 0 });
-    day.s += Math.min((Date.now() - lAt.current) / 1000, 12);
-    trimDays(L.days);
+    /* Same accounting as the reading loop: exposure plus the response window,
+       response capped the same way. Crediting only the response made a minute
+       of b/d worth less than a minute of reading — worst at turtle speed, where
+       the flash is most of the item — and this is the drill he gets sent to
+       when reading is going badly. */
+    const lBonus = creditDay(L, letterExposure(li, speedRef.current) / 1000 +
+      Math.min((Date.now() - lAt.current) / 1000, 10));
+    L.coins += lBonus;
     const newData = { ...prev, [lg]: L };
     dataRef.current = newData; setData(newData); scheduleSave(lg);
     lScore.current = { r: lScore.current.r + (ok ? 1 : 0), n: lScore.current.n + 1 };
     lRun.current = ok ? lRun.current + 1 : 0;
     if (lRun.current > (achRef.current.lBest || 0)) achRef.current = { ...achRef.current, lBest: lRun.current };
     runAchCheck(newData);
-    if (sndRef.current) { ok ? sfx.ok() : sfx.no(); }
+    if (sndRef.current) { ok ? (lBonus ? sfx.bonus() : sfx.ok()) : sfx.no(); }
     setLfb({ ok, chosen: opt });
     setLstage("fb");
     sayWord(item.answer);
@@ -1815,9 +1836,8 @@ export default function App() {
     else { vk.wr++; vk.mx = vk.mx || {}; vk.mx[opt] = (vk.mx[opt] || 0) + 1; }
     /* counts toward the daily minute goal like any other answered question —
        "active time" is the sum of response windows, never wall clock */
-    const day = L.days[tISO()] || (L.days[tISO()] = { s: 0, b1: 0, b2: 0 });
-    day.s += Math.min((Date.now() - vAt.current) / 1000, 12);
-    trimDays(L.days);
+    const vBonus = creditDay(L, Math.min((Date.now() - vAt.current) / 1000, 12));
+    L.coins += vBonus;
     const newData = { ...prev, [lg]: L };
     dataRef.current = newData;
     setData(newData);
@@ -1826,7 +1846,7 @@ export default function App() {
     vRun.current = ok ? vRun.current + 1 : 0;
     if (vRun.current > (achRef.current.vBest || 0)) achRef.current = { ...achRef.current, vBest: vRun.current };
     runAchCheck(newData);
-    if (sndRef.current) { ok ? sfx.ok() : sfx.no(); }
+    if (sndRef.current) { ok ? (vBonus ? sfx.bonus() : sfx.ok()) : sfx.no(); }
     setVfb({ ok, chosen: opt });
     sayWord(item.word);
     if (ok) setTimeout(vowelNext, 1200);   // a miss waits for the continue button
@@ -1966,14 +1986,9 @@ export default function App() {
     }
     if (sndRef.current) speak(target, lang, voiceURIsRef.current, speechRateRef.current, speechPitchRef.current); // hear the word either way, right or wrong
 
-    const day = L.days[today] || (L.days[today] = { s: 0, b1: 0, b2: 0 });
-    day.s += active;
-    let bonus = 0;
-    if (day.s >= 900 && !day.b1) { day.b1 = 1; bonus += 10; }
-    if (day.s >= 1500 && !day.b2) { day.b2 = 1; bonus += 25; }
+    const bonus = creditDay(L, active);
     earned += bonus;
     L.coins += earned;
-    trimDays(L.days);
 
     if (!turbo) {
       const after = starLevel(L, list);
