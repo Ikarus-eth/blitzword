@@ -140,9 +140,13 @@ closer to `o`, and a/e and a/o are among the most confused pairs in the data.
 
 ## Sessions
 
-A chunk ends at **~2.5 min of active time or 50 questions**, whichever first.
-**"Active time" is the sum of per-question response windows, not wall clock** — an
-idle open tab must earn nothing, or the daily streak becomes meaningless.
+A chunk ends at **~2.5 min of work or 50 questions**, whichever first, where
+work is `DUR[speed] + response` summed over the questions. That is a measure of
+*material got through*, not of time at the iPad, and it is deliberately not the
+same number as the daily active time below — pacing a chunk by the clock would
+quietly shorten it from ~50 questions to ~27, because the clock also counts the
+stages between questions. The two are separated in `answer()` as `work` and
+`active`; `test_active_time` pins the chunk to `work`.
 
 Chunk end shows: a random encouragement phrase, accuracy, coins earned, any newly
 mastered words, a "new words unlocked" banner, and the speed nudge.
@@ -240,13 +244,41 @@ read `days[today].s`, and every answer handler adds its active time through
 `creditDay()`, which also pays the two minute milestones. The milestone check
 used to sit inline in the reading loop, so mini-game minutes slid the ring past
 15 and 25 without paying, and a day that ended inside a mini-game lost the bonus
-for good. The b/d drill also credits its flash as well as the response window,
-exactly as the reading loop credits `DUR` plus the response: crediting only the
-response made a minute of the remedial drill worth less than a minute of
-reading — worst at turtle speed, where the flash *is* most of the item — and
-that is the drill he gets sent to when reading is going badly.
-`test_daily_credit` asserts both, and fails if the day record is inlined back
-into one handler.
+for good. `test_daily_credit` asserts this, and fails if the day record is
+inlined back into one handler.
+
+### Active time is the span between answers, capped
+
+Each answer credits the wall clock since the previous answer — `span()`, capped
+at `IDLE_MAX` (30 s) — so every millisecond of the loop lands in exactly one
+span and none of it in two.
+
+This replaced `DUR[speed] + response`, which was a proxy for the same quantity
+and a leaky one. It counted the flash and his answer and dropped the 500 ms
+fixation dot, the 950 ms feedback on a correct answer, and the entire
+hold-on-miss dwell, which has no timer on it by design. Measured at speed 5 with
+a 1.8 s response it credited 2.65 s of a 4.51 s item: **the ring closed after
+about 17 real minutes rather than 10**, which is not the target anyone was
+setting. Worse, the stages it dropped are the ones a miss is made of, so the
+proxy paid least on exactly the days that were going badly — a bad session was
+charged a longer sit than a good one, which is backwards.
+
+**The cap is what carries the original rule.** The rule was never "measure
+response windows"; it was that an idle open tab must earn nothing, or the daily
+streak means nothing. A walked-away-from screen now earns `IDLE_MAX` once and
+nothing after, which serves that rule while a raw wall clock would not.
+Everything outside the loop is outside every span by construction: the span
+restarts when a mode is entered, so the home screen, the badge gallery, the
+parent dashboard, the chunk-end summary and level-up celebrations are never
+inside one. Browsing trophies is not practice, and the first answer after
+coming back is billed from re-entry, not from whenever he last answered.
+
+The same treatment applies to both mini-games, so a b/d minute and a reading
+minute are still worth the same — that was already true once the drill started
+crediting its flash, and the span keeps it true for the fixation and feedback
+stages as well. `test_active_time` asserts credited-vs-clock, the cap, the
+gallery exclusion and the chunk separation; it fails against any build that
+goes back to summing response windows.
 
 This is not in tension with the rule that a mini-game must not touch
 `s`/`cc`/`iv`/`due`/`h`. Those fields are claims about *reading a word*, which a

@@ -648,6 +648,36 @@ function trimDays(days) {
   const ks = Object.keys(days).sort();
   while (ks.length > 60) delete days[ks.shift()];
 }
+/* The longest single uninterrupted stretch that can still be called practice.
+   Past this he has walked off, and walking off earns nothing. */
+const IDLE_MAX = 30;
+
+/* Active time, measured span by span. Each answer credits the wall clock since
+   the previous answer — the feedback he studied, the fixation dot, the flash
+   and his own response window — so every millisecond of the loop lands in
+   exactly one span and none of it is counted twice.
+
+   This replaces `DUR + response`, which was a proxy for the same quantity and a
+   poor one: it omitted the 500 ms fixation, the 950 ms correct-feedback and the
+   entire hold-on-miss dwell, which is unbounded on purpose. Measured at speed 5
+   with a 1.8 s response it credited 2.65 s of a 4.51 s item, so ten ring-minutes
+   cost about seventeen real ones and "10 minutes a day" was not the target being
+   asked for. Worse, the omitted stages are the ones a miss is made of, so the
+   proxy paid least on exactly the days that were going badly — a bad session was
+   punished with a longer sit.
+
+   The cap is what keeps the original rule intact. An abandoned screen earns
+   IDLE_MAX once and nothing after, so an idle open tab still cannot build a
+   streak. Menus, the badge gallery, the parent dashboard, chunk-end and level-up
+   screens fall outside every span by construction: the span restarts when play
+   is entered, so time spent browsing trophies is never inside one. */
+const span = (ref) => {
+  const now = Date.now();
+  const sec = ref.current ? Math.min((now - ref.current) / 1000, IDLE_MAX) : 0;
+  ref.current = now;
+  return sec > 0 ? sec : 0;
+};
+
 /* One answered question in any of the three games credits its active time to
    today's record and pays the daily minute milestones. All three call this.
    It used to be written inline in the reading loop only, so a mini-game answer
@@ -1661,6 +1691,7 @@ export default function App() {
   const rollRef = useRef([]);
   const runRef = useRef(0);
   const tilesAt = useRef(0);
+  const spanAt = useRef(0);       // start of the current active-time span (see span())
   const pendingLvl = useRef(null);
   const saveT = useRef({});
   const backRef = useRef("home");
@@ -1765,7 +1796,7 @@ export default function App() {
     if (phase !== "letters") return;
     let t;
     if (lstage === "fix") t = setTimeout(() => setLstage("show"), 400);
-    else if (lstage === "show") t = setTimeout(() => { lAt.current = Date.now(); setLstage("answer"); }, letterExposure(li, speedRef.current));
+    else if (lstage === "show") t = setTimeout(() => setLstage("answer"), letterExposure(li, speedRef.current));
     return () => clearTimeout(t);
   }, [phase, lstage, li]);
 
@@ -1823,13 +1854,13 @@ export default function App() {
     const rec = L.lp[key] || (L.lp[key] = { r: 0, wr: 0, h: [] });
     if (ok) { rec.r++; L.coins += 1; } else rec.wr++;
     rec.h = [...(rec.h || []), ok ? 1 : 0].slice(-PAIR_RETIRE_N);
-    /* Same accounting as the reading loop: exposure plus the response window,
-       response capped the same way. Crediting only the response made a minute
-       of b/d worth less than a minute of reading — worst at turtle speed, where
-       the flash is most of the item — and this is the drill he gets sent to
-       when reading is going badly. */
-    const lBonus = creditDay(L, letterExposure(li, speedRef.current) / 1000 +
-      Math.min((Date.now() - lAt.current) / 1000, 10));
+    /* Same accounting as the reading loop: the span since the previous answer,
+       which covers the fixation dot, the flash, his response and the feedback
+       he read. Crediting only the response made a minute of b/d worth less than
+       a minute of reading — worst at turtle speed, where the flash is most of
+       the item — and this is the drill he gets sent to when reading is going
+       badly. Adding exposure fixed that half; the span fixes the rest. */
+    const lBonus = creditDay(L, span(lAt));
     L.coins += lBonus;
     const newData = { ...prev, [lg]: L };
     dataRef.current = newData; setData(newData); scheduleSave(lg);
@@ -1870,7 +1901,6 @@ export default function App() {
     const q = buildVowelQueue(dataRef.current[lg], LISTS[lg], lg, VOWEL_N);
     if (!q.length) return;
     vScore.current = { r: 0, n: 0 }; vRun.current = 0;
-    vAt.current = Date.now();
     setVq(q); setVi(0); setVfb(null); setPhase("vowel");
     setTimeout(() => sayWord(q[0].word), 350);
   };
@@ -1887,8 +1917,8 @@ export default function App() {
     if (ok) { vk.r++; L.coins += 1; }
     else { vk.wr++; vk.mx = vk.mx || {}; vk.mx[opt] = (vk.mx[opt] || 0) + 1; }
     /* counts toward the daily minute goal like any other answered question —
-       "active time" is the sum of response windows, never wall clock */
-    const vBonus = creditDay(L, Math.min((Date.now() - vAt.current) / 1000, 12));
+       active time is the span since the previous answer, capped at IDLE_MAX */
+    const vBonus = creditDay(L, span(vAt));
     L.coins += vBonus;
     const newData = { ...prev, [lg]: L };
     dataRef.current = newData;
@@ -1914,7 +1944,6 @@ export default function App() {
       runAchCheck(dataRef.current);
       setPhase("vdone"); return;
     }
-    vAt.current = Date.now();
     setVi(vi + 1); setVfb(null);
     sayWord(vq[vi + 1].word);
   };
@@ -1962,6 +1991,17 @@ export default function App() {
       } else nextItem();
   };
 
+  /* Every span begins here. Anything that happened before play was entered —
+     the home screen, the badge gallery, the parent dashboard, the chunk-end
+     summary, a level-up celebration — is outside the span and earns nothing.
+     Without this reset the first answer after a visit to the trophies would
+     bill the whole visit to the daily ring. */
+  useEffect(() => {
+    if (phase === "play") spanAt.current = Date.now();
+    else if (phase === "vowel") vAt.current = Date.now();
+    else if (phase === "letters") lAt.current = Date.now();
+  }, [phase]);
+
   useEffect(() => {
     if (phase !== "play") return;
     let t;
@@ -1980,7 +2020,13 @@ export default function App() {
     const eff = effSpeed();
     const turbo = modeRef.current.t === "turbo";
     const resp = Math.min((Date.now() - tilesAt.current) / 1000, 10);
-    const active = DUR[eff] / 1000 + resp;
+    /* Two different quantities that used to be one. `work` sizes the chunk: a
+       chunk is CHUNK_SEC of work done, and pacing it by wall clock instead
+       would silently shorten it from ~50 questions to ~27. `active` is time on
+       the iPad, which is what the ⏱ ring, the flame and the minute milestones
+       are about. Keep them apart. */
+    const work = DUR[eff] / 1000 + resp;
+    const active = span(spanAt);
     rollRef.current = [...rollRef.current, ok].slice(-10);
 
     const prev = dataRef.current;
@@ -2051,7 +2097,7 @@ export default function App() {
     }
 
     const ch = chunkRef.current;
-    ch.q++; ch.sec += active; ch.coins += earned;
+    ch.q++; ch.sec += work; ch.coins += earned;
     if (ok) ch.right++;
     if (mastered) ch.mast.push(target);
 
@@ -3079,7 +3125,7 @@ export default function App() {
             ⭐ {starLevel(L, LISTS[lang])}
           </div>
         )}
-        <div style={{ flex: 1, height: 10, background: "#D6E4F2", borderRadius: 6, overflow: "hidden", margin: "0 4px" }}>
+        <div data-chunk={chunkFrac.toFixed(4)} style={{ flex: 1, height: 10, background: "#D6E4F2", borderRadius: 6, overflow: "hidden", margin: "0 4px" }}>
           <div style={{ width: `${Math.round(chunkFrac * 100)}%`, height: "100%", background: C.blue, borderRadius: 6, transition: "width .4s" }} />
         </div>
         <div style={{ ...cardSt, padding: "8px 16px", fontSize: 21, fontWeight: 800, borderRadius: 18, color: "#8A5A00", background: "#FFF3D6" }}>
