@@ -1,5 +1,5 @@
 import { ANIMALS, ORDER } from "../src/art.mjs";
-import { writeFileSync } from "fs";
+import { writeFileSync, readFileSync } from "fs";
 
 const kebab = (k) => k.replace(/[A-Z]/g, (m) => "-" + m.toLowerCase());
 const attrs = (o) =>
@@ -18,6 +18,54 @@ export const band = (key, b, x, y, w) => {
 
 const whole = (keys, x, y, w) =>
   keys.map((k, i) => band(k, i, x, y + (i * w) / 2, w)).join("");
+
+/* ---------------------------------------------------------------------------
+   node tools/preview-art.mjs --raster  ->  sheet-raster.html
+
+   The shipped drawings are the generated illustrations inlined in src/App.jsx,
+   not these vectors — the vectors are the geometry the illustrations were
+   warped back onto, and the fallback if that ever has to be undone. This mode
+   pulls the inline images straight out of App.jsx and lays out the same three
+   checks the vector sheet does: all eight whole, hybrids with a rule drawn
+   across each cut so a mismatched seam is obvious, and the strips at answer-
+   tile size, which is the smallest they are ever seen.
+
+   HTML rather than SVG because the images are data URIs; open it in a browser.
+--------------------------------------------------------------------------- */
+if (process.argv.includes("--raster")) {
+  const src = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
+  const imgs = {};
+  const re = /(\w+): "(data:image\/webp;base64,[A-Za-z0-9+/=]+)"/g;
+  let m;
+  while ((m = re.exec(src))) imgs[m[1]] = m[2];
+  const keys = ORDER.filter((k) => imgs[k]);
+  if (keys.length !== ORDER.length) {
+    console.error(`only found ${keys.length}/${ORDER.length} inline images in src/App.jsx`);
+    process.exit(1);
+  }
+  const W = 150, BH = W / 2;
+  const strip = (k, b) =>
+    `<div style="width:${W}px;height:${BH}px;overflow:hidden;position:relative;` +
+    (b ? "border-top:4px solid rgba(34,49,74,.34);box-shadow:inset 0 3px 5px -3px rgba(34,49,74,.45);" : "") +
+    `"><img src="${imgs[k]}" style="position:absolute;left:0;top:${-b * BH}px;width:${W}px;height:${W * 1.5}px"></div>`;
+  const whole = (t) => `<div style="margin:0 8px">${[0, 1, 2].map((b) => strip(t[b], b)).join("")}</div>`;
+  const HY = [["krokodil", "jaguar", "elefant"], ["giraffe", "flamingo", "zebra"],
+              ["gorilla", "krokodil", "kamel"], ["zebra", "giraffe", "jaguar"],
+              ["flamingo", "kamel", "gorilla"], ["elefant", "zebra", "giraffe"]];
+  const tiny = (k) => `<div style="margin:0 6px;width:92px">${[0, 1, 2].map((b) =>
+    `<div style="width:92px;height:46px;overflow:hidden;position:relative;` +
+    (b ? "border-top:3px solid rgba(34,49,74,.34);" : "") +
+    `"><img src="${imgs[k]}" style="position:absolute;left:0;top:${-b * 46}px;width:92px;height:138px"></div>`).join("")}</div>`;
+  writeFileSync("sheet-raster.html",
+    `<!doctype html><meta charset="utf-8"><title>BlitzWort — Tier-Blitz artwork</title>
+<body style="background:#EDF5FC;font:14px system-ui;color:#22314A;margin:24px">
+<h2>the eight, whole</h2><div style="display:flex">${keys.map((k) => whole([k, k, k])).join("")}</div>
+<h2>hybrids — a rule is drawn across every cut</h2><div style="display:flex">${HY.map(whole).join("")}</div>
+<h2>at answer-tile size</h2><div style="display:flex">${keys.map(tiny).join("")}</div>
+</body>`);
+  console.log(`sheet-raster.html written (${keys.length} animals)`);
+  process.exit(0);
+}
 
 const W = 120;
 const cols = 8;

@@ -274,6 +274,32 @@ have been read or it may have been recognised. `Flarildil` is not ambiguous.
   he is making, so there is nothing for it to retire against. Labelled with a
   Krogufant rather than a word — the exercise itself, the way `a e i` and `b d`
   are.
+- **The artwork is generated, then forced back onto the raster.** The eight
+  animals were drawn as vectors first, in `src/art.mjs`, on the shared body
+  plan. Free text-to-image cannot hold that plan — the whole mechanism depends
+  on every head being the same width at y=60 — so each vector was rendered and
+  passed through an image model as an *edit*, with the drawing as the base.
+  That holds the silhouette by construction, but not exactly: the necks of the
+  giraffe, the camel and the flamingo came back 25-32% too narrow, because a
+  slender neck is what those animals actually have, and the crocodile came back
+  18% too wide. Each image is therefore warped back row by row, with scale and
+  centre interpolated between four control rows — identity at the top and
+  bottom edges, exact at the two cuts — so the correction is concentrated where
+  it has to be right and the extremities are left alone. Every silhouette is
+  now within 0.6% of the template at both cut lines. The heavy rule drawn over
+  each seam is the cut edge of the paper, which the book has physically; it is
+  also what covers the last unit of drift. Backgrounds are cleared to
+  transparent by a border flood fill, plus the vector silhouette for pockets a
+  border fill cannot reach, such as the gap between the legs — without that,
+  three animals with slightly different background tints stack into a hybrid
+  with a bright step at every seam. `node tools/preview-art.mjs --raster`
+  rebuilds the contact sheet from the images inlined in App.jsx.
+
+- **The images are inline base64, not files.** The service worker fetches every
+  GET network-first with `no-store`, so eight separate assets would be
+  re-fetched on every open and would not survive going offline. ~193 KB of
+  WebP, 400x600 at q46-76, each under 25 KB.
+
 - **The Krogufant is guaranteed once.** Left to chance it is 1 in 512 and he
   might never meet the creature the mode is named after, so until he has built
   it one item per round is set to it. After that it is back to chance. The

@@ -98,8 +98,13 @@ const wordsBefore = JSON.stringify(before.words);
 // --- 1. launcher -----------------------------------------------------------
 const launcher = btns().find((b) => b.getAttribute("aria-label") === "Tier-Blitz");
 check("Tier-Blitz launcher on the home screen", !!launcher);
+/* three bands and no letters. Counts img OR svg: the strips were vector
+   drawings before the illustrations were generated, and either way the point
+   of the assertion is that the button is labelled with the exercise itself,
+   the way "a e i" and "b d" are, and carries no word to decode. */
 check("launcher is labelled with a creature, not a word",
-  !!launcher && launcher.querySelectorAll("svg").length === 3 && !/[A-Za-z]/.test(launcher.textContent));
+  !!launcher && launcher.querySelectorAll("img, svg").length === 3
+  && !/[A-Za-z]/.test(launcher.textContent));
 tap(launcher);
 
 // --- 2, 3, 4, 7. play the round -------------------------------------------
