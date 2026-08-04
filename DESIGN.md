@@ -246,23 +246,70 @@ have been read or it may have been recognised. `Flarildil` is not ambiguous.
   matching task: name on screen, strips on screen, compare. The creature and
   the tiles are therefore not rendered until the mask has come down, and a test
   asserts they are absent while the name is up.
-- **Exposure ramps the other way from the b/d drill.** It opens at
-  `DUR[speed-2]` and works down to `DUR[speed]` over the round, where b/d opens
-  at the slider setting and speeds up. A nine-letter nonsense word at rocket
-  speed is not a reading task, it is a guess. Relative to the slider for the
-  same reason every other ramp is: the slider is his one difficulty control.
+- **Exposure ramps the other way from the b/d drill**, opening long and working
+  down. It first shipped ending at `DUR[speed]` — the same exposure as `der` —
+  which at slider 7 meant 500 ms for a word like `Flarildil`. That is not
+  readable, so guessing was the correct strategy on the last items of every
+  round. It now runs `DUR[speed-4] → DUR[speed-3] → DUR[speed-2]`, so the
+  fastest item is still two to three times a curriculum word. Relative to the
+  slider for the same reason every other ramp is: the slider is his one
+  difficulty control.
 - **The open slot rotates, and the medial one is hardest.** Word-initial and
   word-final fragments sit at an edge, where letters are least crowded and
   position is unambiguous. The middle has neither advantage, so it is neither
   first nor over-represented.
-- **The picture is the reward, never the cue.** All four tiles show a plausible
-  animal strip and differ only in the printed syllable. Distractors are ranked
-  by letter overlap with the right fragment rather than picked at random, so
-  the first letter is not enough — which is precisely the partial-decoding
-  habit this mode exists to break.
-- **Within any slot all eight fragments are distinct.** If two animals shared
-  one, a name would have two correct builds and a wrong tile would still be
-  right.
+- **Every animal has exactly three syllables.** Zebra (Ze-bra) and Kamel
+  (Ka-mel) have two, and filling three slots from two syllables forced a
+  doubled fragment: a whole zebra spelled `Zebrabra` next to a picture of a
+  real zebra. For 508 of 512 combinations that was harmless nonsense; for those
+  four it was a real animal shown with a wrong spelling, which is the one thing
+  this mode must not teach. Both were dropped.
+- **Within any slot all fragments are distinct.** If two animals shared one, a
+  name would have two correct builds and a wrong tile would still be right.
+- **A one-letter fragment is never the answer.** Elefant is E-le-fant, and `E`
+  in slot 0 would be solvable on length alone, so `MIX_MIN_FRAG` keeps it out
+  of the answer position there. The strip still appears everywhere and
+  Krogufant is unaffected, because Elefant contributes `fant` in slot 2.
+
+### Distractors — where the first version lost
+
+The mode shipped with the other animals' real fragments as foils, ranked by
+letter overlap. Measured against that build, a child who remembered **only the
+initial letter of each syllable answered 83% of items correctly** — 92% with
+word length as well, against 25% for guessing. Sixteen of the twenty-four
+possible items were decided by one letter. That matches what actually happened
+in use: he was guessing and mostly getting away with it.
+
+**This is structural, not a tuning problem.** Within a slot every fragment must
+be distinct, so real animal names cannot supply four foils that share an
+initial. Enlarging the pool makes it worse: at ten animals `Ka` collides in
+slot 0, at twelve `la` collides in slot 2, at fourteen `li` collides in slot 1.
+Duplicate fragments arrive before shared initials do.
+
+So the foils are generated, off the same `SUB` confusion map the reading loop
+uses for its pseudo-words — the mechanism DESIGN already calls the heart of the
+exercise, and the one thing Tier-Blitz was missing. A foil **keeps the first
+letter and the length** and swaps exactly one interior letter.
+
+**Four tiles, two animals, two spellings each.** The picture cannot decide it,
+because each animal appears twice. The first letter cannot decide it, because
+both foils keep it. Only the interior letters can. Two animals rather than one:
+with a single animal on all four tiles the picture would name the answer and
+the flash would be redundant. Two real spellings rather than one: if exactly
+one tile carried a real fragment he could pick the one he recognises without
+reading the name at all.
+
+Measured on the rebuilt game across 60 sampled items: **0 decided by the
+initial alone, 0 by length alone**, and the initial-letter-only strategy drops
+from 83% to 44%. It is not 25% because with six animals the partner cannot
+always match both the initial and the length of the right fragment; that
+improves as the pool grows. `test_animal_mix` reads the correct tile off the
+feedback colouring and asserts both counts are zero rather than merely lower.
+
+- **Two slots open in the back half of the round.** Six creatures with one slot,
+  then two creatures with both slots open and **one flash between them**. Holding
+  two syllables from a single look forces more of the name to be read than
+  whichever slot happens to fall open, and a guess has to come off twice.
 - **Scoring lives in `L.tm`**, at language level like `L.lp`, holding `r`,
   `wr`, a per-animal tally and the Krogufant flag. It never touches
   `s`/`cc`/`iv`/`due`/`h`/`r`/`wr`/`tn`/`d`, and no word record is created: a

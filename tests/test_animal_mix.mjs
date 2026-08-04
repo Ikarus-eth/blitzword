@@ -110,13 +110,16 @@ tap(launcher);
 // --- 2, 3, 4, 7. play the round -------------------------------------------
 let items = 0, sawFlash = "", sawMask = false, tilesDuringFlash = false;
 let uniqueFrags = 0, tileCount = 0, heldOnMiss = null;
+const seqByQuestion = new Map();          // question index -> "flash" | "carry"
+const decidedByInitial = [], decidedByLength = [];
 
-for (let q = 0; q < 12; q++) {
+for (let q = 0; q < 15; q++) {
   // the flash: catch the name, and check nothing answerable is on screen yet
-  let name = "";
+  let name = "", flashed = false;
   for (let k = 0; k < 500; k++) {
     const f = flashSpan();
     if (f) {
+      flashed = true;
       name = f.textContent.trim();
       if (tiles().length) tilesDuringFlash = true;
     }
@@ -126,6 +129,10 @@ for (let q = 0; q < 12; q++) {
   }
   if (!tiles().length) break;
   if (name) sawFlash = name;
+  /* keyed on the question index, because the tiles stay mounted through
+     feedback and a plain counter would record the same question twice */
+  const seq = D().querySelector("[data-mix-seq]");
+  if (seq) seqByQuestion.set(seq.getAttribute("data-mix-q"), seq.getAttribute("data-mix-seq"));
   items++;
 
   if (items === 1) {
@@ -133,8 +140,19 @@ for (let q = 0; q < 12; q++) {
     uniqueFrags = new Set(frags()).size;
   }
 
+  const shownFrags = frags();
   tap(tiles()[0]);
   await sleep(320);
+
+  /* Which tile was right, read off the feedback colouring, so the shortcut
+     below is measured against what the app actually generated rather than
+     against a second copy of the selection rule. */
+  const rightTile = tiles().find((t) => /2FBF71|47,\s*191,\s*113/i.test(t.style.borderColor || ""));
+  const right = rightTile ? (rightTile.querySelector("[data-frag]") || {}).textContent : null;
+  if (right && shownFrags.length === 4) {
+    decidedByInitial.push(shownFrags.filter((f) => f[0].toLowerCase() === right[0].toLowerCase()).length === 1);
+    decidedByLength.push(shownFrags.filter((f) => f.length === right.length).length === 1);
+  }
 
   if (cont() && heldOnMiss === null) {
     // a miss: the screen must not move on its own. The old feedback timer was
@@ -156,6 +174,28 @@ check("the creature and tiles stay hidden during the flash", !tilesDuringFlash);
 check("the name is masked before the tiles appear", sawMask);
 check("four answer tiles", tileCount === 4, `got ${tileCount}`);
 check("four different printed fragments", uniqueFrags === 4, `got ${uniqueFrags}`);
+
+/* The shortcut this mode was losing to. With the other animals' real fragments
+   as foils, remembering only the initial letter of each syllable answered 83%
+   of items correctly and 66% of them were decided by that letter alone, because
+   fragments within a slot must all be distinct and so almost never share an
+   initial. Foils are now generated to keep the initial and the length, and both
+   of these must be zero — not merely lower. */
+const initHits = decidedByInitial.filter(Boolean).length;
+const lenHits = decidedByLength.filter(Boolean).length;
+console.log(`items scored ${decidedByInitial.length} | decided by initial alone ${initHits} | by length alone ${lenHits}`);
+check("no item is decided by the first letter alone",
+  decidedByInitial.length >= 5 && initHits === 0, `${initHits}/${decidedByInitial.length}`);
+check("no item is decided by fragment length alone",
+  lenHits === 0, `${lenHits}/${decidedByLength.length}`);
+const carries = [...seqByQuestion.values()].filter((v) => v === "carry").length;
+/* A round is six single-slot creatures then two with both slots open, so two
+   questions per round carry no new flash. The loop above does not always reach
+   the last one — it sits out a 4.2 s hold on the first miss — so one is enough
+   to prove the escalation exists; the pre-change build produces none at all. */
+check("a two-slot creature is flashed once, not twice",
+  carries >= 1 && seqByQuestion.size >= 8,
+  `${carries} carried questions across ${seqByQuestion.size} distinct questions`);
 check("a miss holds the screen, no auto-advance", heldOnMiss === true,
   heldOnMiss === null ? "no miss occurred in the round" : "");
 
