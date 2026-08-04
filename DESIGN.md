@@ -227,6 +227,61 @@ errors across those two pairs, 21 of them b/d, against 683 total answers.
   because most items (bare letters, syllables) are not curriculum words at all.
   It never touches `s`/`cc`/`iv`/`due`/`h`. There is a test asserting this.
 
+## Tier-Blitz — reading a word that cannot be recognised
+
+Sara Ball's flip-book `Krogufant` cuts each animal into three strips and cuts
+the name with them, so Kro(kodil) + (Ja)gu(ar) + (Ele)fant assembles into a
+creature and a pronounceable word at the same time. That is the whole idea, and
+it happens to solve a problem the rest of the app cannot.
+
+**Why a nonsense word.** Every other reading task here can in principle be
+passed on familiarity. That is not a flaw — recognising a whole word instantly
+*is* the skill being trained, and the distractor design is what stops shape
+alone from carrying him. But a made-up name has never been seen before, so
+there is no stored form to match against and the only route through is the
+syllables. A curriculum word answered correctly is ambiguous evidence: it may
+have been read or it may have been recognised. `Flarildil` is not ambiguous.
+
+- **Flash and mask, like the main loop.** Without them this collapses into a
+  matching task: name on screen, strips on screen, compare. The creature and
+  the tiles are therefore not rendered until the mask has come down, and a test
+  asserts they are absent while the name is up.
+- **Exposure ramps the other way from the b/d drill.** It opens at
+  `DUR[speed-2]` and works down to `DUR[speed]` over the round, where b/d opens
+  at the slider setting and speeds up. A nine-letter nonsense word at rocket
+  speed is not a reading task, it is a guess. Relative to the slider for the
+  same reason every other ramp is: the slider is his one difficulty control.
+- **The open slot rotates, and the medial one is hardest.** Word-initial and
+  word-final fragments sit at an edge, where letters are least crowded and
+  position is unambiguous. The middle has neither advantage, so it is neither
+  first nor over-represented.
+- **The picture is the reward, never the cue.** All four tiles show a plausible
+  animal strip and differ only in the printed syllable. Distractors are ranked
+  by letter overlap with the right fragment rather than picked at random, so
+  the first letter is not enough — which is precisely the partial-decoding
+  habit this mode exists to break.
+- **Within any slot all eight fragments are distinct.** If two animals shared
+  one, a name would have two correct builds and a wrong tile would still be
+  right.
+- **Scoring lives in `L.tm`**, at language level like `L.lp`, holding `r`,
+  `wr`, a per-animal tally and the Krogufant flag. It never touches
+  `s`/`cc`/`iv`/`due`/`h`/`r`/`wr`/`tn`/`d`, and no word record is created: a
+  placed strip is not a claim about having read a curriculum word. Animal names
+  are not curriculum words at all. `test_animal_mix` diffs every word record
+  across a whole round and fails on any drift.
+- **The launcher is permanent**, unlike the b/d drill. That one is remedial and
+  disappears when the pair stops costing answers; this is not fixing an error
+  he is making, so there is nothing for it to retire against. Labelled with a
+  Krogufant rather than a word — the exercise itself, the way `a e i` and `b d`
+  are.
+- **The Krogufant is guaranteed once.** Left to chance it is 1 in 512 and he
+  might never meet the creature the mode is named after, so until he has built
+  it one item per round is set to it. After that it is back to chance. The
+  celebration is unscored, and so is the free mixer that flips through all 512
+  after a round — reachable only from the round-end screen, because an unscored
+  playground is a fine reward for finishing and a distraction from the start
+  screen.
+
 ## Rewards
 
 - +1 coin per correct answer.
@@ -309,9 +364,14 @@ Two rules make it safe:
 
 ## Achievements
 
-120 badges: 12 categories × 10 tiers (first-time events, correct-in-a-row, questions
+130 badges: 13 categories × 10 tiers (first-time events, correct-in-a-row, questions
 answered, words mastered, daily minutes, day streak, perfect-at-each-speed, practice
 levels, levels mastered, turbo/gold, plus one category per mini-game).
+
+The number is not a constant anywhere. It is `ACHIEVEMENTS.length`, and the
+only assertion worth making about it is that it equals ten times the number of
+categories. It was a literal `100` once and then a literal `120`; both times
+adding a category broke a passing test that was testing nothing useful.
 
 ### One gallery per language
 
@@ -437,19 +497,22 @@ attribute is what the test selects on.
 
 ### Mini-game badges
 
-Each mini-game carries its own 10, bringing the total to 120 per language. Both follow the
-same shape: two entry badges (first answer, first completed round), a four-step
+Each mini-game carries its own 10, bringing the total to 130 per language. All three follow
+the same shape: two entry badges (first answer, first completed round), a four-step
 volume ladder, a streak, a breadth or perfect-round badge, and one quality
 badge that cannot be won by rushing.
 
-That last one is the point. `k10` needs 90% across at least 100 vowel answers
-and `l10` needs a pair retired — both reward accuracy over throughput. A badge
-for answering quickly would work directly against the reason these modes exist.
-`l10` is the only badge in the app awarded for no longer needing a feature.
+That last one is the point. `k10` needs 90% across at least 100 vowel answers,
+`m10` the same across 100 animal answers, and `l10` needs a pair retired — all
+three reward accuracy over throughput. A badge for answering quickly would work
+directly against the reason these modes exist. `l10` is the only badge in the
+app awarded for no longer needing a feature. There is deliberately no badge for
+the Krogufant: it is a 1-in-512 moment, and a score attached to it would turn a
+surprise into a target.
 
-Ids are worth one note: both categories are built from the shared `ladder`
-factory with prefixes `k` and `l`, whose generated ids collide with the
-hand-written entries and are remapped to `k3`–`k6` / `l3`–`l6`. A collision
+Ids are worth one note: all three categories are built from the shared `ladder`
+factory with prefixes `k`, `l` and `m`, whose generated ids collide with the
+hand-written entries and are remapped to `k3`–`k6` / `l3`–`l6` / `m3`–`m6`. A collision
 would make two badges share an unlock slot and quietly render one unreachable,
 so `test_minigame_awards` checks one hand-written and one remapped badge in the
 same run. The badge total is derived from `ACHIEVEMENTS.length` everywhere it is

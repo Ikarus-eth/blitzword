@@ -616,6 +616,425 @@ const letterExposure = (i, speed) => DUR[Math.min(speed + (i < 5 ? 0 : i < 10 ? 
 
 const VOWEL_N = 12;
 
+/* ===================== Tier-Blitz (Krogufant) ======================
+   A third sublexical exercise, behind its own button, on the model of Sara
+   Ball's flip-book: three strips — head, middle, rear — and the name is cut
+   with them, so Kro(kodil) + (Ja)gu(ar) + (Ele)fant reads "Krogufant".
+
+   Why a nonsense word is the point. Every other reading task in the app can,
+   in principle, be passed by recognising a familiar shape — that is what
+   automaticity *is*, and it is what the main loop trains. But a made-up name
+   has never been seen before, so there is no stored whole-word form to match
+   against and the only way through is to read the syllables. That is the one
+   thing whole-word practice cannot check on its own.
+
+   Same isolation rule as the other two: results go to L.tm at language level.
+   A placed strip is not a claim about having read a curriculum word, so it
+   must never touch s/cc/iv/due/h/r/wr/tn/d. test_animal_mix asserts it. */
+
+const MIX_N = 10;                 // items per round
+const MIX_TILES = 4;
+const MIX_HOLD = 1100;            // auto-advance after a correct answer
+const KROGU = ["krokodil", "jaguar", "elefant"];
+const KROGU_ODDS = 512;           // 8^3 — one exact combination out of all of them
+
+/* The fragments, per slot, per language. Head fragments carry the capital;
+   middle and rear are lowercase, so the three concatenate into one
+   pronounceable word. Within any one slot all eight are distinct — if two
+   animals shared a fragment there, a name would have two correct builds and
+   the wrong tile would still be right. */
+const TIERE = {
+  krokodil: { de: ["Kro", "ko", "dil"], en: ["Cro", "co", "dile"] },
+  elefant: { de: ["Ele", "le", "fant"], en: ["El", "e", "phant"] },
+  jaguar: { de: ["Ja", "gu", "ar"], en: ["Ja", "gu", "ar"] },
+  giraffe: { de: ["Gi", "raf", "raffe"], en: ["Gi", "raf", "raffe"] },
+  flamingo: { de: ["Fla", "min", "go"], en: ["Fla", "min", "go"] },
+  gorilla: { de: ["Go", "ril", "la"], en: ["Go", "ril", "la"] },
+  zebra: { de: ["Ze", "bra", "bra"], en: ["Ze", "bra", "bra"] },
+  kamel: { de: ["Ka", "me", "mel"], en: ["Ca", "me", "mel"] }
+};
+
+/* The drawings. Inlined from src/art.mjs, which stays the source of truth for
+   the artwork and the body raster it is drawn on: frame 120x180, band 0 is
+   y 0..60, band 1 is y 60..120, band 2 is y 120..180, the neck crosses y=60
+   at x 47..73 and the hips cross y=120 at x 33..87. Only those two crossings
+   are fixed, which is what lets a flamingo and an elephant come off one
+   template and still join at the seams. Wrapped in a closure because several
+   of its short helper names (P, E, C_) would collide at module scope. */
+const { ANIMALS: TIER_ART, ORDER: TIER_ORDER } = (() => {
+  const INK = "#22314A";
+  const P = (d, fill, x) => ["path", { d, fill, ...(x || {}) }];
+  const C_ = (cx, cy, r, fill, x) => ["circle", { cx, cy, r, fill, ...(x || {}) }];
+  const E = (cx, cy, rx, ry, fill, x) => ["ellipse", { cx, cy, rx, ry, fill, ...(x || {}) }];
+  const NO = { stroke: "none" };
+  /* a limb/tail drawn as an ink stroke with the colour laid over it — far less
+     path data than outlining a tapered shape, and the join stays round */
+  const LIMB = (d, fill, w) => [
+    ["path", { d, fill: "none", stroke: INK, strokeWidth: w + 3.4, strokeLinecap: "round" }],
+    ["path", { d, fill: "none", stroke: fill, strokeWidth: w, strokeLinecap: "round" }]
+  ];
+
+  const NECK = "M47,60 V46 Q47,36 60,36 Q73,36 73,46 V60 Z";
+  const TORSO = "M47,58 Q33,66 31,86 Q29,104 33,120 H87 Q91,104 89,86 Q87,66 73,58 Z";
+  const RUMP = "M33,120 Q28,131 32,142 Q41,149 60,149 Q79,149 88,142 Q92,131 87,120 Z";
+
+  /* eye that reads at thumbnail size: white, pupil, and a highlight */
+  const EYE = (x, y, r) => [
+    C_(x, y, r, "#fff"),
+    C_(x + 0.4, y + 0.4, r * 0.48, INK, NO),
+    C_(x - r * 0.3, y - r * 0.35, r * 0.2, "#fff", NO)
+  ];
+
+  /* forelimbs hanging at the sides, drawn before the torso so they emerge from
+     behind it. An earlier version tucked two paws against the chest; together
+     with the chest patch they read unmistakably as a pair of closed eyes. */
+  const ARMS = (fill, k) => {
+    const one = (m) => {
+      const f = (x) => (m ? 120 - x : x);
+      return [
+        ...LIMB(`M${f(44)},68 Q${f(30)},82 ${f(26)},100`, fill, 10 * k),
+        E(f(26), 106, 9.5 * k, 7.5 * k, fill),
+        P(`M${f(19)},106 Q${f(26)},110 ${f(33)},106`, "none", { stroke: INK, strokeWidth: 1.5 }),
+        P(`M${f(21)},101 Q${f(26)},104 ${f(31)},101`, "none", { stroke: INK, strokeWidth: 1.3 })
+      ];
+    };
+    return [...one(false), ...one(true)];
+  };
+
+  /* hind legs. k scales the leg, so a flamingo and an elephant come off the same
+     template and still put their feet on the same line. Drawn before the rump so
+     the rump covers the hip joint. */
+  const HIND = (fill, k) => {
+    const one = (m) => {
+      const f = (x) => (m ? 120 - x : x);
+      const o = 33 + (1 - k) * 7, i = 51 - (1 - k) * 7, mid = (o + i) / 2;
+      return [
+        P(`M${f(o)},124 Q${f(o - 1)},150 ${f(o)},166 Q${f(o)},175 ${f(mid)},175 Q${f(i)},175 ${f(i)},166 Q${f(i + 1)},148 ${f(i)},124 Z`, fill),
+        P(`M${f(o + 1)},169 Q${f(mid)},174 ${f(i - 1)},169`, "none", { stroke: INK, strokeWidth: 1.5 })
+      ];
+    };
+    return [...one(false), ...one(true)];
+  };
+
+  const spots = (pts, fill) => pts.map(([x, y, r]) => E(x, y, r, r * 0.82, fill, NO));
+
+  /* ------------------------------ the eight ------------------------------ */
+
+  const ANIMALS = {
+    krokodil: {
+      key: "krokodil", tint: "#6CBF4A",
+      head: () => [
+        P(NECK, "#6CBF4A"),
+        ...spots([[52, 50, 2.6], [66, 52, 2.4], [59, 44, 2.4]], "#4E9B33"),
+        P("M36,27 Q36,13 53,13 H66 Q79,13 84,23 L112,29 Q119,31 119,36 Q119,41 112,43 L84,49 Q79,57 66,57 H53 Q36,57 36,43 Z", "#6CBF4A"),
+        P("M84,42 L112,38", "none", { stroke: INK, strokeWidth: 1.6 }),
+        P("M88,42 L91,48 L94,42 Z", "#fff"),
+        P("M97,41 L100,47 L103,41 Z", "#fff"),
+        P("M106,40 L109,45 L112,40 Z", "#fff"),
+        E(48, 16, 11, 9, "#6CBF4A"),
+        E(70, 15, 9, 7.5, "#6CBF4A"),
+        C_(48, 16, 5.4, "#F6A500"),
+        E(48, 16, 1.9, 4.6, INK, NO),
+        C_(70, 15, 4.4, "#F6A500"),
+        E(70, 15, 1.6, 3.8, INK, NO),
+        E(110, 33, 2.6, 2, "#4E9B33", NO),
+        ...spots([[60, 30, 2.4], [70, 34, 2.2], [80, 30, 2]], "#4E9B33")
+      ],
+      body: () => [
+        P(TORSO, "#6CBF4A"),
+        E(60, 96, 20, 19, "#D7EFB6", NO),
+        ...spots([[38, 74, 3], [46, 68, 2.6], [82, 74, 3], [74, 68, 2.6], [35, 92, 2.8], [85, 92, 2.8]], "#4E9B33"),
+        ...ARMS("#6CBF4A", 1)
+      ],
+      rear: () => [
+        ...LIMB("M84,128 Q107,134 111,154 Q113,171 101,175", "#6CBF4A", 11),
+        P("M96,133 L99,127 L102,134 Z", "#4E9B33", NO),
+        P("M106,143 L111,139 L111,147 Z", "#4E9B33", NO),
+        ...HIND("#6CBF4A", 1),
+        P(RUMP, "#6CBF4A"),
+        ...spots([[44, 132, 3.2], [60, 128, 3], [76, 132, 3.2], [52, 143, 2.8], [68, 143, 2.8]], "#4E9B33")
+      ]
+    },
+
+    elefant: {
+      key: "elefant", tint: "#A9B4BE",
+      head: () => [
+        P("M42,14 Q14,8 9,30 Q5,52 26,55 Q40,56 45,42 Z", "#8794A0"),
+        P("M78,14 Q106,8 111,30 Q115,52 94,55 Q80,56 75,42 Z", "#8794A0"),
+        P(NECK, "#A9B4BE"),
+        E(60, 28, 22, 21, "#A9B4BE"),
+        P("M48,44 Q43,52 46,58", "none", { stroke: INK, strokeWidth: 5.4, strokeLinecap: "round" }),
+        P("M48,44 Q43,52 46,58", "none", { stroke: "#fff", strokeWidth: 3.2, strokeLinecap: "round" }),
+        P("M72,44 Q77,52 74,58", "none", { stroke: INK, strokeWidth: 5.4, strokeLinecap: "round" }),
+        P("M72,44 Q77,52 74,58", "none", { stroke: "#fff", strokeWidth: 3.2, strokeLinecap: "round" }),
+        ...LIMB("M60,40 Q57,51 62,57 Q68,60 70,54", "#A9B4BE", 9.5),
+        ...EYE(49, 25, 4.4),
+        ...EYE(71, 25, 4.4)
+      ],
+      body: () => [
+        P(TORSO, "#A9B4BE"),
+        E(60, 95, 20, 18, "#BFC9D2", NO),
+        P("M38,72 Q46,66 54,70 M82,72 Q74,66 66,70", "none", { stroke: "#8794A0", strokeWidth: 2 }),
+        ...ARMS("#A9B4BE", 1.1)
+      ],
+      rear: () => [
+        ...LIMB("M86,127 Q99,136 97,150", "#A9B4BE", 4),
+        C_(97, 153, 3.6, INK, NO),
+        ...HIND("#A9B4BE", 1),
+        P(RUMP, "#A9B4BE"),
+        E(60, 134, 17, 9, "#BFC9D2", NO),
+        P("M44,148 Q52,153 60,150 M76,148 Q68,153 60,150", "none", { stroke: "#8794A0", strokeWidth: 1.8 })
+      ]
+    },
+
+    jaguar: {
+      key: "jaguar", tint: "#F2A93B",
+      head: () => [
+        P("M43,18 L37,3 L56,11 Z", "#F2A93B"),
+        P("M77,18 L83,3 L64,11 Z", "#F2A93B"),
+        P("M45,15 L42,7 L52,12 Z", "#F7C77E", NO),
+        P("M75,15 L78,7 L68,12 Z", "#F7C77E", NO),
+        P(NECK, "#F2A93B"),
+        C_(60, 31, 22, "#F2A93B"),
+        E(60, 40, 12, 8.5, "#FFF3D6", NO),
+        P("M55,35 H65 L60,40 Z", INK, NO),
+        P("M60,40 Q56,45 51,42 M60,40 Q64,45 69,42", "none", { stroke: INK, strokeWidth: 1.8 }),
+        ...EYE(51, 27, 4.6),
+        ...EYE(69, 27, 4.6),
+        ...spots([[45, 17, 2.6], [75, 17, 2.6], [52, 46, 2], [68, 46, 2], [60, 15, 2.4], [48, 36, 1.8], [72, 36, 1.8]], INK),
+        P("M40,40 L30,37 M40,44 L31,44 M80,40 L90,37 M80,44 L89,44", "none", { stroke: INK, strokeWidth: 1.3 })
+      ],
+      body: () => [
+        P(TORSO, "#F2A93B"),
+        E(60, 96, 19, 18, "#FFF3D6", NO),
+        ...spots([[38, 72, 3.4], [50, 66, 2.8], [70, 66, 2.8], [82, 72, 3.4], [34, 90, 3.2], [86, 90, 3.2], [37, 108, 3], [83, 108, 3], [60, 68, 2.6]], INK),
+        ...ARMS("#F2A93B", 0.85)
+      ],
+      rear: () => [
+        ...LIMB("M85,129 Q107,134 109,153 Q110,167 99,169", "#F2A93B", 8),
+        ...spots([[95, 132, 2.4], [105, 141, 2.4], [107, 156, 2.4]], INK),
+        ...HIND("#F2A93B", 0.82),
+        P(RUMP, "#F2A93B"),
+        ...spots([[44, 130, 3.4], [61, 127, 3], [77, 130, 3.4], [50, 144, 3], [70, 144, 3], [60, 152, 2.6]], INK)
+      ]
+    },
+
+    giraffe: {
+      key: "giraffe", tint: "#E8B96A",
+      head: () => [
+        P("M47,60 L52,27 Q53,19 60,19 Q68,19 69,27 L73,60 Z", "#E8B96A"),
+        ...LIMB("M55,11 L53,4", "#E8B96A", 3),
+        C_(53, 3, 3.4, "#B07A2E"),
+        ...LIMB("M67,11 L69,4", "#E8B96A", 3),
+        C_(69, 3, 3.4, "#B07A2E"),
+        E(44, 16, 6, 4, "#E8B96A"),
+        E(76, 16, 6, 4, "#E8B96A"),
+        E(60, 17, 14, 10, "#E8B96A"),
+        E(60, 23, 8, 5.5, "#F6DDAE", NO),
+        ...spots([[57, 24, 1.4], [63, 24, 1.4]], INK),
+        ...EYE(53, 14, 3.4),
+        ...EYE(67, 14, 3.4),
+        ...spots([[55, 34, 3.4], [66, 40, 3.4], [55, 48, 3.6], [67, 54, 3], [59, 42, 2.4]], "#B07A2E")
+      ],
+      body: () => [
+        P(TORSO, "#E8B96A"),
+        ...spots([[40, 72, 5], [60, 68, 4.4], [80, 72, 5], [35, 90, 4.6], [85, 90, 4.6], [48, 86, 4], [72, 86, 4], [38, 108, 4.4], [82, 108, 4.4], [60, 100, 4]], "#B07A2E"),
+        ...ARMS("#E8B96A", 0.7)
+      ],
+      rear: () => [
+        ...LIMB("M86,127 Q97,139 95,151", "#E8B96A", 3.4),
+        C_(95, 155, 4.2, "#5B4327", NO),
+        ...HIND("#E8B96A", 0.72),
+        P(RUMP, "#E8B96A"),
+        ...spots([[44, 130, 4.6], [62, 127, 4.2], [78, 131, 4.4], [50, 146, 4], [72, 146, 4], [61, 141, 3.6]], "#B07A2E")
+      ]
+    },
+
+    flamingo: {
+      key: "flamingo", tint: "#F58BAE",
+      head: () => [
+        P("M47,60 C44,44 49,29 56,18 L68,23 C63,33 61,46 73,60 Z", "#F58BAE"),
+        E(59, 15, 11, 9.5, "#F58BAE"),
+        P("M52,13 Q36,15 30,24 Q42,29 55,21 Z", "#F6A500"),
+        P("M30,24 Q35,26 39,24.5 L35,19 Q31,21 30,24 Z", INK, NO),
+        ...EYE(60, 12, 3.4)
+      ],
+      body: () => [
+        P(TORSO, "#F58BAE"),
+        P("M33,74 Q52,64 64,76 Q74,88 66,104 Q52,112 40,102 Q31,90 33,74 Z", "#F7A6C2", NO),
+        P("M38,80 Q50,76 60,84 M36,92 Q49,88 60,96 M38,104 Q50,100 60,106", "none", { stroke: "#E0708F", strokeWidth: 1.8 }),
+        ...ARMS("#F58BAE", 0.55)
+      ],
+      rear: () => [
+        P("M84,124 Q104,124 110,136 Q100,142 86,138 Z", "#F7A6C2"),
+        ...HIND("#F58BAE", 0.42),
+        P(RUMP, "#F58BAE"),
+        P("M42,138 Q52,132 62,138 M60,148 Q70,142 80,148", "none", { stroke: "#E0708F", strokeWidth: 1.8 })
+      ]
+    },
+
+    gorilla: {
+      key: "gorilla", tint: "#565058",
+      head: () => [
+        C_(35, 31, 6.5, "#565058"),
+        C_(85, 31, 6.5, "#565058"),
+        P(NECK, "#565058"),
+        P("M38,29 Q38,8 60,8 Q82,8 82,29 Q82,52 60,52 Q38,52 38,29 Z", "#565058"),
+        P("M42,25 Q60,15 78,25 Q60,21 42,25 Z", "#3C373F", NO),
+        E(60, 36, 17, 14, "#7A727E", NO),
+        ...spots([[55, 35, 2.2], [65, 35, 2.2]], INK),
+        P("M50,44 Q60,49 70,44", "none", { stroke: INK, strokeWidth: 2 }),
+        ...EYE(52, 28, 3.8),
+        ...EYE(68, 28, 3.8)
+      ],
+      body: () => [
+        P("M47,58 Q30,64 28,84 Q27,104 33,120 H87 Q93,104 92,84 Q90,64 73,58 Z", "#565058"),
+        E(60, 94, 19, 19, "#7A727E", NO),
+        P("M40,74 Q48,66 58,70 M80,74 Q72,66 62,70", "none", { stroke: "#3C373F", strokeWidth: 2.2 }),
+        ...ARMS("#565058", 1.15)
+      ],
+      rear: () => [
+        ...HIND("#565058", 1),
+        P(RUMP, "#565058"),
+        E(60, 133, 16, 8, "#7A727E", NO),
+        P("M44,146 Q52,151 60,148 M76,146 Q68,151 60,148", "none", { stroke: "#3C373F", strokeWidth: 2 })
+      ]
+    },
+
+    zebra: {
+      key: "zebra", tint: "#FFFFFF",
+      head: () => [
+        P("M47,60 L50,32 Q52,22 60,22 Q68,22 70,32 L73,60 Z", "#fff"),
+        P("M52,30 L47,36 L53,37 L48,44 L54,45 L49,52 L55,53 L52,60 L58,60 Q56,44 57,31 Z", INK, NO),
+        P("M47,11 L41,1 L54,8 Z", "#fff"),
+        P("M73,11 L79,1 L66,8 Z", "#fff"),
+        P("M45,19 Q45,4 60,4 Q75,4 75,19 Q75,27 68,31 Q60,34 52,31 Q45,27 45,19 Z", "#fff"),
+        E(60, 29, 10, 7.5, "#E4E9EE", NO),
+        ...spots([[56, 29, 1.5], [64, 29, 1.5]], INK),
+        ...EYE(52, 17, 3.8),
+        ...EYE(68, 17, 3.8),
+        P("M60,4 Q56,0 52,3 Q57,2 60,6 Z", INK, NO),
+        P("M46,22 Q53,19 57,24 M74,22 Q67,19 63,24 M47,12 Q54,9 58,13 M73,12 Q66,9 62,13", "none", { stroke: INK, strokeWidth: 2.2 })
+      ],
+      body: () => [
+        P(TORSO, "#fff"),
+        P("M33,70 Q45,66 52,72 Q44,74 34,78 Z M87,70 Q75,66 68,72 Q76,74 86,78 Z M31,86 Q46,82 56,88 Q44,92 30,94 Z M89,86 Q74,82 64,88 Q76,92 90,94 Z M31,102 Q46,98 58,104 Q44,108 32,110 Z M89,102 Q74,98 62,104 Q76,108 88,110 Z", INK, NO),
+        ...ARMS("#fff", 0.8)
+      ],
+      rear: () => [
+        ...LIMB("M86,127 Q97,138 95,150", "#fff", 3.4),
+        C_(95, 154, 4.4, INK, NO),
+        ...HIND("#fff", 0.8),
+        P(RUMP, "#fff"),
+        P("M34,128 Q48,124 58,130 Q46,134 33,136 Z M86,128 Q72,124 62,130 Q74,134 87,136 Z M36,144 Q50,140 60,146 Q48,150 37,151 Z M84,144 Q70,140 60,146 Q72,150 83,151 Z", INK, NO)
+      ]
+    },
+
+    kamel: {
+      key: "kamel", tint: "#D9B47C",
+      head: () => [
+        P("M47,60 C46,44 48,32 54,24 Q58,19 66,19 Q74,19 75,29 L73,60 Z", "#D9B47C"),
+        E(55, 13, 5.4, 4, "#D9B47C"),
+        E(70, 10, 5.4, 4, "#D9B47C"),
+        E(65, 19, 14.5, 10.5, "#D9B47C"),
+        P("M76,13 Q90,15 90,25 Q88,32 79,30 Q73,27 74,20 Q75,15 76,13 Z", "#EFD7B0"),
+        ...spots([[85, 19, 1.6], [88, 23, 1.4]], INK),
+        P("M78,27 Q84,31 89,27", "none", { stroke: INK, strokeWidth: 1.7 }),
+        ...EYE(62, 15, 4),
+        P("M58,10 L56,6 M62,9 L61,5 M66,9 L66,5", "none", { stroke: INK, strokeWidth: 1.7 })
+      ],
+      body: () => [
+        P(TORSO, "#D9B47C"),
+        P("M34,78 Q40,58 54,64 Q60,67 66,64 Q80,58 86,78 Q60,70 34,78 Z", "#C79E63"),
+        E(60, 100, 18, 15, "#EFD7B0", NO),
+        ...ARMS("#D9B47C", 0.75)
+      ],
+      rear: () => [
+        ...LIMB("M86,128 Q95,137 93,147", "#D9B47C", 3.2),
+        C_(93, 151, 4, "#8A6B3C", NO),
+        ...HIND("#D9B47C", 0.78),
+        P(RUMP, "#D9B47C"),
+        E(60, 136, 15, 8, "#EFD7B0", NO)
+      ]
+    }
+  };
+
+  const ORDER = ["krokodil", "elefant", "jaguar", "giraffe", "flamingo", "gorilla", "zebra", "kamel"];
+  return { ANIMALS, ORDER };
+})();
+
+const mixName = (trip, lang) => trip.map((k, i) => TIERE[k][lang][i]).join("");
+
+/* Exposure ramps the other way from the b/d drill: it opens long and works
+   down to the slider setting, because a nine-letter nonsense word at rocket
+   speed is not a reading task, it is a guess. Relative to the slider for the
+   same reason the b/d ramp is — the slider is his one difficulty control, and
+   a mode that ignores it is a mode he cannot make easier when he is stuck. */
+const mixExposure = (i, speed) =>
+  DUR[Math.max(0, Math.min(speed - (i < 4 ? 2 : i < 8 ? 1 : 0), DUR.length - 1))];
+
+/* Which slot is left open, rotating over the round. The medial slot is the
+   hardest — word-initial and word-final fragments both sit at an edge, where
+   letters are least crowded and position is unambiguous — so it is neither
+   first nor over-represented. */
+const MIX_SLOTS = [0, 2, 1, 0, 2, 1, 0, 1, 2, 1];
+
+/* Distractors are chosen for how much they overlap the right fragment, not at
+   random. All four tiles show a plausible animal strip, so the picture can
+   never be the cue; the only thing separating them is the printed syllable.
+   If the foils were random the first letter would usually settle it, which is
+   exactly the partial-decoding habit this mode exists to break. */
+const fragScore = (a, b) => {
+  let s = a[0].toLowerCase() === b[0].toLowerCase() ? 3 : 0;
+  if (a.length === b.length) s += 2;
+  const pool = b.toLowerCase().split("");
+  for (const ch of a.toLowerCase()) {
+    const at = pool.indexOf(ch);
+    if (at >= 0) { s += 1; pool.splice(at, 1); }
+  }
+  return s;
+};
+const mixOptions = (answer, slot, lang, rnd) => {
+  const right = TIERE[answer][lang][slot];
+  const foils = TIER_ORDER
+    .filter((k) => k !== answer && TIERE[k][lang][slot] !== right)
+    .map((k) => ({ k, s: fragScore(TIERE[k][lang][slot], right) }))
+    .sort((x, y) => y.s - x.s)
+    .slice(0, MIX_TILES - 1)
+    .map((x) => x.k);
+  const all = [answer, ...foils];
+  for (let i = all.length - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    [all[i], all[j]] = [all[j], all[i]];
+  }
+  return all;
+};
+
+/* One round. Until he has built the Krogufant itself, exactly one item per
+   round is set to it — otherwise the named creature the mode is built around
+   is a 1-in-512 accident he might never meet. After that it is back to chance,
+   and it is never scored: no badge, no tally, just the moment. */
+function buildMixRound(L, lang) {
+  const built = !!(L.tm || {}).krogu;
+  const rnd = Math.random;
+  const kroguAt = built ? -1 : Math.floor(rnd() * MIX_N);
+  const items = [];
+  for (let i = 0; i < MIX_N; i++) {
+    let trip;
+    if (i === kroguAt) trip = [...KROGU];
+    else {
+      do {
+        trip = [0, 1, 2].map(() => TIER_ORDER[Math.floor(rnd() * TIER_ORDER.length)]);
+      } while (!built && trip.join() === KROGU.join());
+    }
+    const slot = MIX_SLOTS[i % MIX_SLOTS.length];
+    items.push({ trip, slot, answer: trip[slot], opts: mixOptions(trip[slot], slot, lang, rnd) });
+  }
+  return items;
+}
+const isKrogu = (trip) => trip.join() === KROGU.join();
+
+
 /* Extra letter spacing on everything he has to read.
    Zorzi et al. (PNAS 2012) improved reading in dyslexic children on the fly,
    with no training at all, purely by widening inter-letter space — their
@@ -922,9 +1341,10 @@ const CAT_NAMES = {
   star: ["Stufen gemeistert", "Levels Mastered"],
   gold: ["Turbo & Gold", "Turbo & Gold"],
   vowel: ["Vokal-Blitz", "Vowel Blitz"],
-  letters: ["Buchstaben-Blitz", "Letter Blitz"]
+  letters: ["Buchstaben-Blitz", "Letter Blitz"],
+  mix: ["Tier-Blitz", "Animal Blitz"]
 };
-const CAT_ORDER = ["start", "streak", "volume", "mastery", "minutes", "days", "speed", "reach", "star", "gold", "vowel", "letters"];
+const CAT_ORDER = ["start", "streak", "volume", "mastery", "minutes", "days", "speed", "reach", "star", "gold", "vowel", "letters", "mix"];
 
 /* factory for a straight numeric-threshold ladder, DRYs out 8 of the
    10 categories which are otherwise near-identical boilerplate.
@@ -1100,7 +1520,43 @@ const ACHIEVEMENTS = [
   { id: "l10", cat: "letters", icon: "🎓", de: "Paar geknackt!", en: "Pair Cracked!",
     deDesc: "Kriege ein Buchstaben-Paar wie b/d ganz sicher hin — 20 Antworten mit mindestens 90% richtig. Dann verschwindet die Übung von selbst.",
     enDesc: "Master a letter pair like b/d for good — 20 answers at 90% or better. The drill then disappears on its own.",
-    check: (S) => S.lPairsRetired >= 1 }
+    check: (S) => S.lPairsRetired >= 1 },
+
+  /* M — Tier-Blitz. Same shape again: two entry badges, a four-step volume
+     ladder, a streak, a breadth badge, and one quality badge at the end.
+     m10 mirrors k10 deliberately — 90% over at least 100 answers cannot be
+     won by going faster, which is the whole reason these modes exist. There
+     is no badge for the Krogufant: it is a 1-in-512 moment, and scoring it
+     would turn a surprise into a target.
+
+     m3-m6 come off the shared `ladder` factory, whose generated ids would be
+     m1-m4 and collide with the two hand-written entries above. Same remap as
+     k and l. A collision would put two badges in one unlock slot and quietly
+     make one of them unreachable, so test_animal_mix checks one hand-written
+     (m1) and one remapped (m3) badge in the same run. */
+  { id: "m1", cat: "mix", icon: "\u{1F40A}", de: "Erstes Tier!", en: "First Animal!",
+    deDesc: "Beantworte deine erste Frage im Tier-Blitz.", enDesc: "Answer your first question in Animal Blitz.",
+    check: (S) => S.mTotal >= 1 },
+  { id: "m2", cat: "mix", icon: "\u{1F3C1}", de: "Runde fertig!", en: "Round Done!",
+    deDesc: "Spiele eine ganze Tier-Blitz-Runde zu Ende.", enDesc: "Play a whole Animal Blitz round to the end.",
+    check: (S) => S.mRounds >= 1 },
+  ...ladder("m", "mix", "\u{1F9E9}", [25, 100, 250, 500],
+    (n) => `${n} Tiere`, (n) => `${n} Animals`, "mTotal",
+    (n) => `Beantworte insgesamt ${n} Fragen im Tier-Blitz.`,
+    (n) => `Answer a total of ${n} questions in Animal Blitz.`).map((a, i) => ({ ...a, id: `m${i + 3}` })),
+  { id: "m7", cat: "mix", icon: "\u{1F525}", de: "10 am St\u00fcck!", en: "10 Straight!",
+    deDesc: "Setze im Tier-Blitz 10 Streifen hintereinander richtig ein.", enDesc: "Place 10 strips correctly in a row in Animal Blitz.",
+    check: (S) => S.mBest >= 10 },
+  { id: "m8", cat: "mix", icon: "\u{1F993}", de: "Alle 8 Tiere", en: "All 8 Animals",
+    deDesc: "Setze jedes der acht Tiere mindestens einmal richtig ein.", enDesc: "Place each of the eight animals correctly at least once.",
+    check: (S) => S.mAnimals >= 8 },
+  { id: "m9", cat: "mix", icon: "\u{1F4AF}", de: "Alles richtig!", en: "All Correct!",
+    deDesc: "Schaffe eine ganze Tier-Blitz-Runde ohne einen einzigen Fehler.", enDesc: "Complete a whole Animal Blitz round without a single mistake.",
+    check: (S) => S.mPerfect >= 1 },
+  { id: "m10", cat: "mix", icon: "\u{1F393}", de: "Tier-Meister", en: "Animal Master",
+    deDesc: "Erreiche 90% richtige Antworten im Tier-Blitz \u2014 \u00fcber mindestens 100 Fragen gerechnet.",
+    enDesc: "Reach 90% correct in Animal Blitz \u2014 measured over at least 100 questions.",
+    check: (S) => S.mTotal >= 100 && S.mCorrect / S.mTotal >= 0.9 }
 ];
 
 /* Everything the checks read, for ONE language. Each language keeps its own
@@ -1165,16 +1621,21 @@ function miniStats(L, b) {
     lTotal += (rec.r || 0) + (rec.wr || 0); lCorrect += rec.r || 0;
     if (pairRetired(L, key)) lPairsRetired++;
   });
+  const tm = L.tm || {};
+  const mCorrect = tm.r || 0, mTotal = mCorrect + (tm.wr || 0);
+  const mAnimals = Object.keys(tm.seen || {}).length;
   return {
-    vTotal, vCorrect, vWords, lTotal, lCorrect, lPairsRetired,
+    vTotal, vCorrect, vWords, lTotal, lCorrect, lPairsRetired, mTotal, mCorrect, mAnimals,
     vRounds: b.vRounds || 0, vPerfect: b.vPerfect || 0, vBest: b.vBest || 0,
-    lRounds: b.lRounds || 0, lPerfect: b.lPerfect || 0, lBest: b.lBest || 0
+    lRounds: b.lRounds || 0, lPerfect: b.lPerfect || 0, lBest: b.lBest || 0,
+    mRounds: b.mRounds || 0, mPerfect: b.mPerfect || 0, mBest: b.mBest || 0
   };
 }
 /* one language's gallery plus the bookkeeping only the checks use */
 const freshSet = () => ({
   unlocked: {}, seen: {}, bestStreak: 0, perfectSpeeds: {}, chunksDone: 0, speedChanged: false,
-  vRounds: 0, vPerfect: 0, vBest: 0, lRounds: 0, lPerfect: 0, lBest: 0
+  vRounds: 0, vPerfect: 0, vBest: 0, lRounds: 0, lPerfect: 0, lBest: 0,
+  mRounds: 0, mPerfect: 0, mBest: 0
 });
 const freshAch = () => ({ v: 3, de: freshSet(), en: freshSet() });
 const otherLang = (l) => (l === "de" ? "en" : "de");
@@ -1501,6 +1962,42 @@ function DayRing({ sec, size = 48 }) {
     </Ring>
   );
 }
+/* One band of one animal, cut out of the single drawing with the viewBox —
+   the same trick the book uses, where every animal is drawn to one template
+   before the page is sliced. */
+function MixBand({ animal, band, w }) {
+  const a = TIER_ART[animal];
+  const els = [a.head(), a.body(), a.rear()][band];
+  return (
+    <svg width={w} height={w / 2} viewBox={`0 ${band * 60} 120 60`}
+      style={{ display: "block" }} aria-hidden="true">
+      <g stroke="#22314A" strokeWidth="2.4" strokeLinejoin="round" strokeLinecap="round">
+        {els.map((e, i) => React.createElement(e[0], { ...e[1], key: i }))}
+      </g>
+    </svg>
+  );
+}
+/* The assembled creature. `open` is the band left empty, or -1 for a finished
+   one. The heavy rule between bands is the cut edge of the paper: the book
+   has it physically, and here it also covers the last unit or two of drift
+   where two animals' outlines do not quite agree. */
+function MixCreature({ trip, open = -1, w = 130 }) {
+  return (
+    <div style={{ width: w, borderRadius: 12, overflow: "hidden", background: "#fff" }}>
+      {[0, 1, 2].map((b) => (
+        <div key={b} style={{ borderTop: b ? "3px solid rgba(34,49,74,.28)" : "none" }}>
+          {b === open
+            ? <div style={{
+                width: w, height: w / 2, background: "repeating-linear-gradient(45deg,#EDF5FC,#EDF5FC 8px,#DCE8F5 8px,#DCE8F5 16px)",
+                border: "2px dashed #9FB0C2", boxSizing: "border-box", borderRadius: 6
+              }} />
+            : <MixBand animal={trip[b]} band={b} w={w} />}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function Confetti() {
   const bits = Array.from({ length: 28 }, (_, i) => i);
   const em = ["🎉", "⭐", "✨", "🎈", "🪙"];
@@ -1636,7 +2133,7 @@ function UnlockToast({ queue, onDone, lang }) {
 
 /* ------------------------------ App ----------------------------- */
 export default function App() {
-  const [phase, setPhase] = useState("load");   // load|home|play|chunkend|levelup|gold|stack|parent|achievements|vowel|vdone
+  const [phase, setPhase] = useState("load");   // load|home|play|chunkend|levelup|gold|stack|parent|achievements|vowel|vdone|mix|mdone|mixer
   const [vq, setVq] = useState([]);             // Vokal-Blitz round
   const [vi, setVi] = useState(0);
   const [vfb, setVfb] = useState(null);
@@ -1651,6 +2148,15 @@ export default function App() {
   const lScore = useRef({ r: 0, n: 0 });
   const lAt = useRef(0);
   const lRun = useRef(0);
+  const [mq, setMq] = useState([]);              // Tier-Blitz round
+  const [mi, setMi] = useState(0);
+  const [mstage, setMstage] = useState("fix");  // fix|flash|mask|answer|fb
+  const [mfb, setMfb] = useState(null);
+  const [mKrogu, setMKrogu] = useState(false);  // the one-off Krogufant moment
+  const [mixSel, setMixSel] = useState([0, 1, 2]);
+  const mScore = useRef({ r: 0, n: 0 });
+  const mAt = useRef(0);
+  const mRun = useRef(0);
   const [lang, setLang] = useState("de");
   const [speed, setSpeed] = useState(3);
   const [snd, setSnd] = useState(true);
@@ -1888,6 +2394,83 @@ export default function App() {
     setLi(li + 1); setLfb(null); setLstage("fix");
   };
 
+  /* ------------------------- Tier-Blitz --------------------------- */
+  const startMix = () => {
+    initAudio();
+    const lg = langRef.current;
+    mScore.current = { r: 0, n: 0 }; mRun.current = 0;
+    setMq(buildMixRound(dataRef.current[lg], lg));
+    setMi(0); setMfb(null); setMKrogu(false); setMstage("fix");
+    setPhase("mix");
+  };
+
+  const mixAnswer = (opt) => {
+    if (mfb || mstage !== "answer") return;
+    const item = mq[mi];
+    const ok = opt === item.answer;
+    const lg = langRef.current;
+    const prev = dataRef.current;
+    const L = clone(prev[lg]);
+    /* Everything this mode knows lives here, at language level like L.lp. A
+       placed strip says nothing about having read a curriculum word, so none
+       of s/cc/iv/due/h/r/wr/tn/d may move and no word record may be created.
+       test_animal_mix asserts both by diffing L.words across a whole round. */
+    const tm = L.tm || (L.tm = { r: 0, wr: 0, seen: {}, krogu: false });
+    tm.seen = tm.seen || {};
+    let moment = false;
+    if (ok) {
+      tm.r++; L.coins += 1;
+      tm.seen[item.answer] = (tm.seen[item.answer] || 0) + 1;
+      if (isKrogu(item.trip) && !tm.krogu) { tm.krogu = true; moment = true; }
+    } else tm.wr++;
+    /* Same span accounting as the other two games: the wall clock since the
+       previous answer, capped at IDLE_MAX. Crediting only the response window
+       would make a Tier-Blitz minute worth less than a reading minute, and the
+       exposure here is the longest in the app. */
+    const mBonus = creditDay(L, span(mAt));
+    L.coins += mBonus;
+    const newData = { ...prev, [lg]: L };
+    dataRef.current = newData; setData(newData); scheduleSave(lg);
+    mScore.current = { r: mScore.current.r + (ok ? 1 : 0), n: mScore.current.n + 1 };
+    mRun.current = ok ? mRun.current + 1 : 0;
+    if (mRun.current > (achRef.current[lg].mBest || 0)) achRef.current = setBook(achRef.current, lg, { mBest: mRun.current });
+    runAchCheck(newData);
+    if (sndRef.current) { ok ? (mBonus ? sfx.bonus() : sfx.ok()) : sfx.no(); }
+    setMfb({ ok, chosen: opt });
+    setMstage("fb");
+    if (moment) setMKrogu(true);
+    sayWord(mixName(item.trip, lg));
+  };
+
+  const mixNext = () => {
+    if (mKrogu) { setMKrogu(false); return; }
+    const n = mi + 1;
+    if (n >= mq.length) {
+      const lg = langRef.current;
+      const { r, n: total } = mScore.current;
+      achRef.current = setBook(achRef.current, lg, {
+        mRounds: (achRef.current[lg].mRounds || 0) + 1,
+        mPerfect: (achRef.current[lg].mPerfect || 0) + (total >= MIX_N && r === total ? 1 : 0)
+      });
+      runAchCheck(dataRef.current);
+      setPhase("mdone"); return;
+    }
+    setMi(n); setMfb(null); setMstage("fix");
+  };
+
+  useEffect(() => {
+    if (phase !== "mix" || mKrogu) return;
+    let t;
+    if (mstage === "fix") t = setTimeout(() => setMstage("flash"), 400);
+    else if (mstage === "flash") t = setTimeout(() => setMstage("mask"), mixExposure(mi, speedRef.current));
+    else if (mstage === "mask") t = setTimeout(() => setMstage("answer"), 350);
+    else if (mstage === "fb" && mfb && mfb.ok) t = setTimeout(mixNext, MIX_HOLD);
+    /* mstage === "fb" && !mfb.ok: no timer — a miss waits for the button,
+       exactly as in the reading loop. */
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mstage, mi, phase, mfb, mKrogu]);
+
   const startPlay = () => { initAudio(); modeRef.current = { t: "normal", lvl: 0 }; flush(); startChunk(); };
   const startTurbo = (li) => { initAudio(); modeRef.current = { t: "turbo", lvl: li }; flush(); startChunk(); };
 
@@ -2000,6 +2583,7 @@ export default function App() {
     if (phase === "play") spanAt.current = Date.now();
     else if (phase === "vowel") vAt.current = Date.now();
     else if (phase === "letters") lAt.current = Date.now();
+    else if (phase === "mix") mAt.current = Date.now();
   }, [phase]);
 
   useEffect(() => {
@@ -2248,6 +2832,20 @@ export default function App() {
           }}>{workPairs[0].a} {workPairs[0].b}</button>
         )}
 
+        {/* Tier-Blitz. Permanent, not remedial: unlike the b/d drill this is not
+            fixing a specific error he is making, it is the one place a word
+            cannot be recognised from memory. Labelled with a Krogufant rather
+            than a word — the exercise itself, the way "a e i" and "b d" are. */}
+        <button onClick={startMix} aria-label="Tier-Blitz" className="bigbtn" style={{
+          ...cardSt, position: "absolute", bottom: 22, right: 158, width: 88, height: 88,
+          borderRadius: "50%", cursor: "pointer", padding: 0, overflow: "hidden",
+          display: "flex", alignItems: "center", justifyContent: "center"
+        }}>
+          <span style={{ transform: "scale(.92)", pointerEvents: "none" }}>
+            <MixCreature trip={KROGU} w={52} />
+          </span>
+        </button>
+
         <button onClick={() => openAch("home")} className="bigbtn" style={{
           position: "absolute", bottom: 12, left: 12, width: 56, height: 56, fontSize: 26,
           ...cardSt, borderRadius: 18, cursor: "pointer"
@@ -2469,6 +3067,187 @@ export default function App() {
             ...cardSt, width: 104, height: 104, borderRadius: "50%", fontSize: 40, cursor: "pointer"
           }}>🏠</button>
         </div>
+      </div>
+    );
+  }
+
+  /* -------------------------- Tier-Blitz -------------------------- */
+  if (phase === "mix") {
+    const item = mq[mi];
+    if (!item) return null;
+    const name = mixName(item.trip, lang);
+    const done = mstage === "fb";
+
+    /* The Krogufant itself, once, at size. No badge and nothing tallied — it
+       is the creature the whole mode is named after, and a score attached to
+       it would make it a target rather than a surprise. */
+    if (mKrogu) {
+      return (
+        <div className="bw" style={{ ...wrap, alignItems: "center", justifyContent: "center", gap: 18, padding: 16 }}>
+          <style>{css}</style>
+          <Confetti />
+          <MixCreature trip={KROGU} w={200} />
+          <div data-mix="fb" onClick={() => sayWord(name)} style={{
+            fontSize: "clamp(34px,6vw,54px)", fontWeight: 900, letterSpacing: TRACK, cursor: "pointer"
+          }}>{name}</div>
+          <button onClick={mixNext} className="bigbtn" style={{
+            ...cardSt, width: 104, height: 104, borderRadius: "50%", background: C.green,
+            color: "#fff", fontSize: 40, cursor: "pointer"
+          }}>{"\u25B6"}</button>
+        </div>
+      );
+    }
+
+    return (
+      <div className="bw" style={{ ...wrap, padding: "10px 14px 14px", gap: 10, alignItems: "center" }}>
+        <style>{css}</style>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 12, width: "min(96vw,860px)" }}>
+          <button onClick={goHome} className="bigbtn" style={{
+            ...cardSt, width: 58, height: 58, fontSize: 26, borderRadius: 18, cursor: "pointer"
+          }}>{"\u{1F3E0}"}</button>
+          <div style={{ ...cardSt, padding: "8px 16px", fontSize: 21, fontWeight: 800, borderRadius: 18 }}>
+            {mi + 1} / {mq.length}
+          </div>
+          <div style={{ flex: 1 }} />
+          <div style={{
+            ...cardSt, padding: "8px 16px", fontSize: 21, fontWeight: 800, borderRadius: 18,
+            color: "#8A5A00", background: "#FFF3D6"
+          }}>{"\u{1FA99}"} {L.coins}</div>
+        </div>
+
+        {/* the name: flashed, then masked. Four blocks whatever the length, for
+            the same reason the reading loop uses four — a length-matched mask
+            leaks a cue. */}
+        <div style={{
+          ...cardSt, width: "min(96vw,860px)", height: "clamp(84px,13vh,116px)",
+          display: "flex", alignItems: "center", justifyContent: "center"
+        }}>
+          {mstage === "fix" && (
+            <div style={{ width: 20, height: 20, borderRadius: "50%", background: C.ink, animation: "bwPulse .4s ease-in-out infinite" }} />
+          )}
+          {mstage === "flash" && (
+            <span data-mix="flash" style={{ fontSize: "clamp(30px,5.2vw,50px)", fontWeight: 900, letterSpacing: TRACK }}>{name}</span>
+          )}
+          {(mstage === "mask" || mstage === "answer") && (
+            <span style={{ fontSize: "clamp(30px,5.2vw,50px)", color: C.mask, letterSpacing: TRACK }}>{"\u25AE\u25AE\u25AE\u25AE"}</span>
+          )}
+          {done && (
+            <span data-mix="fb" onClick={() => sayWord(name)} style={{
+              fontSize: "clamp(30px,5.2vw,50px)", fontWeight: 900, letterSpacing: TRACK,
+              color: mfb.ok ? C.green : C.ink, cursor: "pointer"
+            }}>{name}</span>
+          )}
+        </div>
+
+        {/* The creature and the tiles appear only once the mask has come down.
+            Shown any earlier they would sit on screen beside the flashed name,
+            and the whole item would collapse into a matching task he could
+            solve without reading anything. */}
+        {(mstage === "answer" || done) && (
+        <div style={{ display: "flex", gap: 16, alignItems: "center", justifyContent: "center", flexWrap: "wrap" }}>
+          <MixCreature trip={item.trip} open={done ? -1 : item.slot} w={130} />
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 10 }}>
+            {item.opts.map((o, i) => {
+              let bg = C.card, bc = C.ink, col = C.ink, anim = "none";
+              if (done) {
+                if (o === item.answer) { bg = "#E6F9EF"; bc = C.green; col = C.green; }
+                else if (o === mfb.chosen) { bg = "#FFECEC"; bc = C.red; col = C.red; anim = "bwShake .4s ease"; }
+                else { bg = "#F2F6FA"; bc = "#DCE8F5"; col = "#9FB0C2"; }
+              }
+              /* the strip is the reward, never the cue: all four are plausible
+                 animals, and only the printed syllable separates them */
+              return (
+                <button key={i} className="tile" onClick={() => mixAnswer(o)} style={{
+                  ...cardSt, background: bg, borderColor: bc, color: col, padding: 6,
+                  cursor: "pointer", animation: anim, fontFamily: "inherit",
+                  display: "flex", flexDirection: "column", alignItems: "center", gap: 4
+                }}>
+                  <span style={{ opacity: done && o !== item.answer && o !== mfb.chosen ? .35 : 1 }}>
+                    <MixBand animal={o} band={item.slot} w={92} />
+                  </span>
+                  <span data-frag style={{ fontSize: 27, fontWeight: 900, letterSpacing: TRACK }}>
+                    {TIERE[o][lang][item.slot]}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        )}
+
+        {done && !mfb.ok && (
+          <button onClick={mixNext} className="bigbtn" style={{
+            ...cardSt, width: 96, height: 96, borderRadius: "50%", background: C.blue,
+            color: "#fff", fontSize: 38, cursor: "pointer"
+          }}>{"\u25B6"}</button>
+        )}
+      </div>
+    );
+  }
+
+  if (phase === "mdone") {
+    const { r, n } = mScore.current;
+    return (
+      <div className="bw" style={{ ...wrap, alignItems: "center", justifyContent: "center", gap: 20, padding: 16 }}>
+        <style>{css}</style>
+        <div style={{ fontSize: 66 }}>{r === n ? "\u{1F3C6}" : r * 2 >= n ? "\u{1F44F}" : "\u{1F4AA}"}</div>
+        <div style={{ fontSize: 40, fontWeight: 900 }}>{r} / {n}</div>
+        {/* the free mixer, reachable only from here: an unscored playground is
+            fine as a reward for finishing, and a distraction from the start
+            screen */}
+        <button onClick={() => { setMixSel([0, 1, 2]); setPhase("mixer"); }} className="bigbtn" style={{
+          ...cardSt, padding: "12px 22px", borderRadius: 20, fontSize: 22, fontWeight: 800,
+          cursor: "pointer", display: "flex", alignItems: "center", gap: 12
+        }}>
+          <MixCreature trip={KROGU} w={40} />
+          {lang === "de" ? "Tier-Mixer" : "Animal Mixer"}
+        </button>
+        <div style={{ display: "flex", gap: 16 }}>
+          <button onClick={startMix} className="bigbtn" style={{
+            ...cardSt, width: 104, height: 104, borderRadius: "50%", background: C.blue,
+            color: "#fff", fontSize: 40, cursor: "pointer"
+          }}>{"\u21BB"}</button>
+          <button onClick={goHome} className="bigbtn" style={{
+            ...cardSt, width: 104, height: 104, borderRadius: "50%", fontSize: 40, cursor: "pointer"
+          }}>{"\u{1F3E0}"}</button>
+        </div>
+      </div>
+    );
+  }
+
+  /* Free mixer: all 512 creatures, flipped by hand, read aloud. Nothing is
+     scored and nothing is stored — it is the flip-book, not the exercise. */
+  if (phase === "mixer") {
+    const trip = mixSel.map((i) => TIER_ORDER[i]);
+    const name = mixName(trip, lang);
+    const turn = (b, d) => setMixSel(mixSel.map((v, i) =>
+      i === b ? (v + d + TIER_ORDER.length) % TIER_ORDER.length : v));
+    return (
+      <div className="bw" style={{ ...wrap, alignItems: "center", justifyContent: "center", gap: 14, padding: 14 }}>
+        <style>{css}</style>
+        <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+          {[0, 1, 2].map((b) => (
+            <div key={b} style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <button onClick={() => turn(b, -1)} className="bigbtn" aria-label="zurück" style={{
+                ...cardSt, width: 56, height: 56, borderRadius: 18, fontSize: 24, cursor: "pointer"
+              }}>{"\u25C0"}</button>
+              <div style={{ borderTop: b ? "3px solid rgba(34,49,74,.28)" : "none", background: "#fff" }}>
+                <MixBand animal={trip[b]} band={b} w={150} />
+              </div>
+              <button onClick={() => turn(b, 1)} className="bigbtn" aria-label="weiter" style={{
+                ...cardSt, width: 56, height: 56, borderRadius: 18, fontSize: 24, cursor: "pointer"
+              }}>{"\u25B6"}</button>
+            </div>
+          ))}
+        </div>
+        <div onClick={() => sayWord(name)} style={{
+          fontSize: "clamp(28px,5vw,46px)", fontWeight: 900, letterSpacing: TRACK, cursor: "pointer"
+        }}>{"\u{1F50A}"} {name}</div>
+        <button onClick={() => setPhase("mdone")} className="bigbtn" style={{
+          ...cardSt, width: 80, height: 80, borderRadius: "50%", fontSize: 32, cursor: "pointer"
+        }}>{"\u2B05"}</button>
       </div>
     );
   }
