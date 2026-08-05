@@ -258,6 +258,15 @@ have been read or it may have been recognised. `Flarildil` is not ambiguous.
   word-final fragments sit at an edge, where letters are least crowded and
   position is unambiguous. The middle has neither advantage, so it is neither
   first nor over-represented.
+- **Sixteen animals in German, six in English.** The pools are separate so one
+  language can grow without waiting on the other. Depth is not only variety: the
+  partner tile is the animal whose fragment is closest to the right one, so a
+  deeper pool more often finds one matching both the initial and the length, and
+  the closer the partner, the less a single letter is worth. Ten of the sixteen
+  were painted over an existing animal's vector rather than drawn from scratch —
+  a pelican over the flamingo, a scorpion over the crocodile — which keeps the
+  body raster by construction and costs no new vector work. Every one still
+  spells its own name: Schild+krö+te, Tin+ten+fisch, Skor+pi+on.
 - **Every animal has exactly three syllables.** Zebra (Ze-bra) and Kamel
   (Ka-mel) have two, and filling three slots from two syllables forced a
   doubled fragment: a whole zebra spelled `Zebrabra` next to a picture of a
@@ -299,12 +308,18 @@ the flash would be redundant. Two real spellings rather than one: if exactly
 one tile carried a real fragment he could pick the one he recognises without
 reading the name at all.
 
-Measured on the rebuilt game across 60 sampled items: **0 decided by the
+Measured on the rebuilt game across 90 sampled items: **0 decided by the
 initial alone, 0 by length alone**, and the initial-letter-only strategy drops
-from 83% to 44%. It is not 25% because with six animals the partner cannot
-always match both the initial and the length of the right fragment; that
-improves as the pool grows. `test_animal_mix` reads the correct tile off the
-feedback colouring and asserts both counts are zero rather than merely lower.
+from 83% to 32% against a floor of 25%. It is not 25% exactly because the
+partner cannot always match both the initial and the length of the right
+fragment — that is what the pool size buys. At six animals the same measurement
+gave 44%; at sixteen it gives 32%.
+
+The scoring that picks the partner weights the initial above the length, and
+that ordering was measured rather than assumed: weighting the two equally let
+the sorter choose a same-length partner with a different initial and pushed the
+figure back up to 37%. `test_animal_mix` reads the correct tile off the feedback
+colouring and asserts both counts are zero rather than merely lower.
 
 - **Two slots open in the back half of the round.** Six creatures with one slot,
   then two creatures with both slots open and **one flash between them**. Holding
