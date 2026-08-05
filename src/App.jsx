@@ -660,32 +660,34 @@ const TIERE = {
   krokodil: { de: ["Kro", "ko", "dil"], en: ["Cro", "co", "dile"] },
   elefant: { de: ["E", "le", "fant"], en: ["El", "e", "phant"] },
   jaguar: { de: ["Ja", "gu", "ar"], en: ["Ja", "gu", "ar"] },
-  giraffe: { de: ["Gi", "raf", "fe"], en: ["Gi", "raf", "fe"] },
+  giraffe: { de: ["Gi", "raf", "fe"] },
   flamingo: { de: ["Fla", "min", "go"], en: ["Fla", "min", "go"] },
   gorilla: { de: ["Go", "ril", "la"], en: ["Go", "ril", "la"] },
-  pelikan: { de: ["Pe", "li", "kan"] },
+  pelikan: { de: ["Pe", "li", "kan"], en: ["Pe", "li", "can"] },
   papagei: { de: ["Pa", "pa", "gei"] },
   kaninchen: { de: ["Ka", "nin", "chen"] },
   schildkroete: { de: ["Schild", "krö", "te"] },
-  schimpanse: { de: ["Schim", "pan", "se"] },
-  libelle: { de: ["Li", "bel", "le"] },
+  schimpanse: { de: ["Schim", "pan", "se"], en: ["Chim", "pan", "zee"] },
+  libelle: { de: ["Li", "bel", "le"], en: ["Drag", "on", "fly"] },
   dromedar: { de: ["Dro", "me", "dar"] },
-  skorpion: { de: ["Skor", "pi", "on"] },
+  skorpion: { de: ["Skor", "pi", "on"], en: ["Scor", "pi", "on"] },
   tarantel: { de: ["Ta", "ran", "tel"] },
-  tintenfisch: { de: ["Tin", "ten", "fisch"] }
+  tintenfisch: { de: ["Tin", "ten", "fisch"], en: ["Oc", "to", "pus"] }
 };
-/* Which animals each language draws on. German has sixteen, English the six
-   that have English syllables — the pools are separate so one language can grow
+/* Which animals each language draws on. German has sixteen, English the ten
+   whose English name also has three syllables. Six drop out of English for that
+   reason alone: giraffe, parrot, rabbit, tortoise and camel have two syllables
+   there, tarantula has four. The pools are separate so one language can grow
    without waiting on the other. Sixteen matters for more than variety: the
    partner tile is the animal whose fragment is closest to the right one, so a
    deeper pool more often finds one that matches both the initial letter and the
    length, and the closer the partner, the less a single letter is worth. */
 const MIX_POOL = {
   de: ["krokodil", "elefant", "jaguar", "giraffe", "flamingo", "gorilla", "pelikan", "papagei", "kaninchen", "schildkroete", "schimpanse", "libelle", "dromedar", "skorpion", "tarantel", "tintenfisch"],
-  en: ["krokodil", "elefant", "jaguar", "giraffe", "flamingo", "gorilla"]
+  en: ["krokodil", "elefant", "jaguar", "flamingo", "gorilla", "pelikan", "schimpanse", "libelle", "skorpion", "tintenfisch"]
 };
-/* Fragments fall back to German: the sixteen have no English syllables and are
-   kept out of MIX_POOL.en, so this only guards against a stray lookup. */
+/* Fragments fall back to German. The six animals with no English entry are kept
+   out of MIX_POOL.en, so this only guards against a stray lookup. */
 const frag = (k, lang, slot) => ((TIERE[k][lang] || TIERE[k].de)[slot] || "");
 
 const canAnswer = (k, slot, lang) => frag(k, lang, slot).length >= MIX_MIN_FRAG;

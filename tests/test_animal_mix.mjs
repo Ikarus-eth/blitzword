@@ -234,6 +234,77 @@ check("m4 (100 answers) correctly still locked", !ach.m4);
 check("m1 and m3 are distinct slots, no id collision",
   !!ach.m1 && !!ach.m3 && new Set(mIds).size === mIds.length);
 
+// --- 10. English -----------------------------------------------------------
+// The English pool is ten of the sixteen: giraffe, parrot, rabbit, tortoise and
+// camel have two syllables in English and tarantula has four, so they are German
+// only. What matters here is that the mode plays at all in English, draws its
+// fragments from the English table rather than falling back to German, keeps its
+// results on the English record, and holds the same anti-guessing property.
+const EN_SLOTS = [
+  ["Cro", "El", "Ja", "Fla", "Go", "Pe", "Chim", "Drag", "Scor", "Oc"],
+  ["co", "e", "gu", "min", "ril", "li", "pan", "on", "pi", "to"],
+  ["dile", "phant", "ar", "go", "la", "can", "zee", "fly", "on", "pus"]
+];
+/* A flashed name is the only unambiguous evidence that the English table is
+   being used. Tile text is not: a generated foil can coincide with a German
+   fragment by accident — "Scor" perturbs to "Skor" through the c/k pair, and
+   "la" to "le" — so blocklisting German strings flags legitimate foils.
+
+   This is a sampling check over a handful of names, so it catches a systemic
+   fallback — a wrong MIX_POOL.en, a broken frag() — but not one animal missing
+   its English entry. That was verified: removing the pelican's English
+   fragments does not reliably fail this, because its German and English
+   syllables differ in one slot out of three. Pointing MIX_POOL.en at the German
+   pool does fail it, every time. */
+const composesInEnglish = (name) => EN_SLOTS[0].some((a) => name.startsWith(a) &&
+  EN_SLOTS[1].some((b) => name.startsWith(a + b) &&
+    EN_SLOTS[2].some((c) => a + b + c === name)));
+tap(cont());
+await sleep(200);
+tap(btns().find((x) => x.textContent.trim() === "🏠"));
+await sleep(400);
+const enBtn = btns().find((b) => /English/.test(b.textContent));
+check("English available from home", !!enBtn);
+tap(enBtn);
+await sleep(600);
+const deBefore = JSON.parse(window.localStorage.getItem("sr.de")).tm || {};
+tap(btns().find((b) => b.getAttribute("aria-label") === "Tier-Blitz"));
+let enItems = 0, enNames = [], enByInitial = 0;
+for (let q = 0; q < 4; q++) {
+  let nm = "";
+  for (let k = 0; k < 600; k++) {
+    const fl = flashSpan();
+    if (fl) nm = fl.textContent.trim();
+    if (tiles().length >= 4) break;
+    await sleep(10);
+  }
+  if (tiles().length < 4) break;
+  const f = frags();
+  enItems++;
+  if (nm) enNames.push(nm);
+  tap(tiles()[0]);
+  await sleep(300);
+  const rt = tiles().find((t) => /2FBF71|47,\s*191,\s*113/i.test(t.style.borderColor || ""));
+  const r = rt ? (rt.querySelector("[data-frag]") || {}).textContent : null;
+  if (r) enByInitial += f.filter((x) => x[0].toLowerCase() === r[0].toLowerCase()).length === 1 ? 1 : 0;
+  if (cont()) { tap(cont()); await sleep(200); }
+  await sleep(400);
+}
+console.log(`English names: ${enNames.join(", ")}`);
+check("Tier-Blitz plays in English", enItems >= 3, `${enItems} items`);
+const badNames = enNames.filter((n) => !composesInEnglish(n));
+check("every flashed name is built from English syllables",
+  enNames.length >= 2 && badNames.length === 0, badNames.join(", "));
+check("English keeps the anti-guessing property",
+  enByInitial === 0, `${enByInitial} of ${enItems} decided by the initial alone`);
+await sleep(1600);                       // outsit the save debounce again
+const enAfter = JSON.parse(window.localStorage.getItem("sr.en")).tm || {};
+const deAfter = JSON.parse(window.localStorage.getItem("sr.de")).tm || {};
+check("English answers land on the English record",
+  (enAfter.r || 0) + (enAfter.wr || 0) >= 3, JSON.stringify({ r: enAfter.r, wr: enAfter.wr }));
+check("and leave the German record alone",
+  (deAfter.r || 0) === (deBefore.r || 0) && (deAfter.wr || 0) === (deBefore.wr || 0));
+
 check("no uncaught errors", errs.length === 0, errs.map(String).slice(0, 3).join(" | "));
 window.close();
 process.exit(fail);

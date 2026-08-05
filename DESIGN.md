@@ -258,7 +258,7 @@ have been read or it may have been recognised. `Flarildil` is not ambiguous.
   word-final fragments sit at an edge, where letters are least crowded and
   position is unambiguous. The middle has neither advantage, so it is neither
   first nor over-represented.
-- **Sixteen animals in German, six in English.** The pools are separate so one
+- **Sixteen animals in German, ten in English.** The pools are separate so one
   language can grow without waiting on the other. Depth is not only variety: the
   partner tile is the animal whose fragment is closest to the right one, so a
   deeper pool more often finds one matching both the initial and the length, and
@@ -267,6 +267,24 @@ have been read or it may have been recognised. `Flarildil` is not ambiguous.
   a pelican over the flamingo, a scorpion over the crocodile — which keeps the
   body raster by construction and costs no new vector work. Every one still
   spells its own name: Schild+krö+te, Tin+ten+fisch, Skor+pi+on.
+
+  **English takes only the ten whose English name also has three syllables**, and
+  needs no new artwork for it: Cro-co-dile, El-e-phant, Ja-gu-ar, Fla-min-go,
+  Go-ril-la, Pe-li-can, Chim-pan-zee, Drag-on-fly, Scor-pi-on, Oc-to-pus. Six
+  drop out on syllable count alone — giraffe, parrot, rabbit, tortoise and camel
+  have two, tarantula has four — and stay German-only. Elephant's middle is the
+  single letter `e`, so `MIX_MIN_FRAG` keeps it out of the answer position
+  there, the mirror of what `E` does in German slot 0.
+
+  **English measures worse than German and structurally so: 44% against 32%**,
+  both against a floor of 25%. Its fragment initials are nearly all unique —
+  slot 0 reads C, E, J, F, G, P, C, D, S, O, with only Cro and Chim sharing one —
+  so the partner tile rarely matches the initial, and one letter is enough to
+  narrow the four tiles to the right pair. That is a property of the English
+  animal names, not of the selection rule; only more English animals move it.
+  Stachelschwein / porcupine is the one clean candidate found so far. Känguru,
+  Kakadu and Kolibri all collide in German (`gu` against Jaguar, `Ka` against
+  Kaninchen, `li` against Pelikan).
 - **Every animal has exactly three syllables.** Zebra (Ze-bra) and Kamel
   (Ka-mel) have two, and filling three slots from two syllables forced a
   doubled fragment: a whole zebra spelled `Zebrabra` next to a picture of a
