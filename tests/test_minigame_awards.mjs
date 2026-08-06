@@ -7,11 +7,18 @@
 // unreachable, which nothing else would catch.
 //
 // Second, l10 — "Paar geknackt". It fires when a letter pair reaches 20 drill
-// answers at 90%+, which is the same condition that retires the pair and hides
-// the launcher. Retirement is what makes Buchstaben-Blitz a temporary drill
-// rather than a permanent button; `mx` is a lifetime tally that only grows, so
-// without it a pair that once crossed the threshold could never fall back under
-// it however well he read afterwards.
+// answers at 90%+.
+//
+// That condition used to do two jobs: award the badge AND hide the launcher.
+// The second job was removed deliberately. On a real export the drill retired
+// itself at 18 of the last 20 while the same export carried 35 b/d
+// substitutions in actual reading — 8.6% of every error made — and 81% lifetime
+// drill accuracy. The window was measuring the drill and the rule read it as
+// evidence about words. Visibility is now a switch in the parent dashboard
+// (test_game_toggles), so the assertion below is inverted from what it once
+// was: a retired pair KEEPS its launcher, and only l10 still turns on the 20/90
+// condition. `mx` being a lifetime tally that only grows is no longer a problem
+// the drill has to solve on its own — a parent who can see him read decides.
 import { JSDOM } from "jsdom";
 import { readFileSync } from "fs";
 
@@ -58,7 +65,7 @@ const btns = (w) => [...w.document.querySelectorAll("button")];
 const tap = (w, el) => el.dispatchEvent(new w.MouseEvent("click", { bubbles: true }));
 const body = (w) => w.document.getElementById("root").textContent;
 
-// ---- a retired pair hides the launcher; a struggling one shows it ----------
+// ---- the 20/90 condition awards l10 and no longer hides the launcher ------
 const good = await boot(RETIRING);
 const launcherWhenRetired = !!btns(good.window).find((b) => b.textContent.trim() === "b d");
 console.log("pair at 95% over 20 drill answers — launcher still shown:", launcherWhenRetired);
@@ -113,7 +120,7 @@ console.log("uncaught errors:", errs.length + bad.errs.length);
 let fail = 0;
 const check = (name, cond) => { console.log(`${cond ? "ok  " : "FAIL"}  ${name}`); if (!cond) fail = 1; };
 
-check("a retired pair hides the Buchstaben-Blitz launcher", !launcherWhenRetired);
+check("a retired pair keeps its launcher — visibility is the parent's switch", launcherWhenRetired);
 check("a struggling pair still shows it", launcherWhenStruggling);
 check("both new categories appear in the badge screen", catShown);
 /* Derived, not a literal. The header count and the per-category tallies are

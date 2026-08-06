@@ -214,11 +214,26 @@ errors across those two pairs, 21 of them b/d, against 683 total answers.
   fixed milliseconds — so it stays a ramp at every setting rather than being a
   ramp at some and a wall at others. The slider is the child's one difficulty
   control; a game that ignores it is a game he can't make easier when stuck.
-- **A pair retires** once the drill shows 20 answers at ≥90%, and the launcher
-  disappears. This is load-bearing: `mx` is a lifetime tally that only grows, so
-  without retirement a pair that crossed the threshold once could never fall
-  back under it however well he read afterwards, and the "temporary" drill would
-  be permanent. Retirement is also what awards `l10`.
+- **A pair reaching 20 drill answers at ≥90% awards `l10` and nothing else.**
+  It used to also retire the pair and hide the launcher, and that was wrong in a
+  way worth recording, because the rule looked correct and the numbers said
+  otherwise. On a real export the b/d pair retired at exactly the gate — 18 of
+  the last 20 — while the same export carried **35 b/d substitutions in actual
+  reading, 8.6% of all 405 errors**, `der`→`ber` twelve times on its own, and
+  81% lifetime drill accuracy. The rolling window was measuring the drill and
+  the rule was reading it as evidence about words. Transfer had not happened,
+  and the one exercise pointed at the problem deleted itself.
+
+  A threshold cannot see that, because the only thing it can see is its own
+  scores. Someone watching the child read can. So **the three mini-game
+  launchers are now switches in the parent dashboard** (`meta.games`, default
+  on, off means absent from the start screen rather than greyed out). The
+  original worry that motivated retirement — `mx` only grows, so a pair could
+  never fall back under the threshold and the "temporary" drill would become
+  permanent — is answered by the switch instead of by an inference the data
+  does not support. `test_game_toggles` asserts the launcher survives a window
+  that would have retired it, and `test_minigame_awards` now asserts the same
+  in the opposite direction from what it once did.
 - **The Bett anchor** opens a b/d round: `b 🛏 d`, the standard German classroom
   cue — b is the headboard, d the footboard. Shown once before the round, never
   during it, so it stays a memory hook rather than an on-screen crutch. No

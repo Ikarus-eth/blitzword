@@ -1097,6 +1097,34 @@ const PAIR_RETIRE_ACC = 0.9;
    `mx` is a lifetime tally and only ever grows, so a pair that crossed the
    threshold once could never fall back under it no matter how well he read
    afterwards. Retirement is what makes the launcher temporary. */
+/* GAMES — which mini-games appear on the start screen. A parent switch, kept
+   in `meta` beside the other settings. Default on: a game nobody turned off is
+   a game he can reach.
+
+   This replaced two automatic rules and it is worth saying why, because both
+   looked right. The b/d drill used to appear only while the pair was above
+   LETTER_PAIR_MIN and vanish once `pairRetired` was true — 20 drill answers at
+   90%. On a real export it retired at exactly that: 18 of the last 20 correct.
+   The same export had 35 b/d substitutions in actual reading, 8.6% of every
+   error made, `der`→`ber` twelve times on its own, and a lifetime drill
+   accuracy of 81%. The rolling window was measuring the drill and the rule was
+   reading it as evidence about words. Transfer had not happened, and the one
+   exercise aimed at the problem removed itself.
+
+   A threshold cannot see that, because it only ever sees its own scores.
+   Someone watching the child read can. So visibility is now a decision, not a
+   derivation. */
+const GAME_KEYS = ["vowel", "letters", "mix"];
+const GAMES_DEFAULT = { vowel: true, letters: true, mix: true };
+const normGames = (g) => {
+  const out = { ...GAMES_DEFAULT };
+  if (g && typeof g === "object") GAME_KEYS.forEach((k) => { if (g[k] === false) out[k] = false; });
+  return out;
+};
+
+/* `l10` still fires on this: it is a badge for having got the pair right, and
+   that is still true and still worth marking. What it no longer does is decide
+   whether the launcher is on screen. */
 const pairRetired = (L, key) => {
   const rec = (L.lp || {})[key];
   if (!rec || !rec.h || rec.h.length < PAIR_RETIRE_N) return false;
@@ -1109,8 +1137,7 @@ function letterPairsNeedingWork(L, lang) {
     .filter((l) => {
       const k = l.pair.split("↔").sort().join("");
       return FORM_PAIRS.includes(k) && l.count >= LETTER_PAIR_MIN &&
-        !VOWELS[lang].includes(k[0]) && !VOWELS[lang].includes(k[1]) &&
-        !pairRetired(L, k);
+        !VOWELS[lang].includes(k[0]) && !VOWELS[lang].includes(k[1]);
     })
     .map((l) => ({ a: l.pair.split("↔")[0], b: l.pair.split("↔")[1], count: l.count }));
 }
@@ -2038,6 +2065,7 @@ export default function App() {
   const [lang, setLang] = useState("de");
   const [speed, setSpeed] = useState(3);
   const [snd, setSnd] = useState(true);
+  const [games, setGames] = useState(GAMES_DEFAULT);
   const [data, setData] = useState(null);
   const [stage, setStage] = useState("fix");    // fix|word|answer|fb
   const [cur, setCur] = useState(null);
@@ -2065,6 +2093,7 @@ export default function App() {
   const langRef = useRef(lang);   langRef.current = lang;
   const speedRef = useRef(speed); speedRef.current = speed;
   const sndRef = useRef(snd);     sndRef.current = snd;
+  const gamesRef = useRef(games); gamesRef.current = games;
   const pagesUrlRef = useRef(pagesUrl); pagesUrlRef.current = pagesUrl;
   const achRef = useRef(ach);     achRef.current = ach;
   const voiceURIsRef = useRef(voiceURIs); voiceURIsRef.current = voiceURIs;
@@ -2119,6 +2148,7 @@ export default function App() {
         if (meta.lang === "de" || meta.lang === "en") setLang(meta.lang);
         if (typeof meta.speed === "number") setSpeed(Math.min(9, Math.max(0, Math.round(meta.speed))));
         if (meta.snd === false) setSnd(false);
+        if (meta.games) setGames(normGames(meta.games));
         if (typeof meta.pagesUrl === "string") setPagesUrl(meta.pagesUrl);
         if (meta.voiceURIs && typeof meta.voiceURIs === "object") setVoiceURIs(meta.voiceURIs);
         if (typeof meta.speechRate === "number" && meta.audioV >= 2) setSpeechRate(meta.speechRate);
@@ -2155,13 +2185,13 @@ export default function App() {
   const flush = () => {
     const d = dataRef.current;
     if (d) { persist("sr.de", d.de); persist("sr.en", d.en); }
-    persist("sr.meta", { lang: langRef.current, speed: speedRef.current, snd: sndRef.current, pagesUrl: pagesUrlRef.current, voiceURIs: voiceURIsRef.current, speechRate: speechRateRef.current, speechPitch: speechPitchRef.current, audioV: 2 });
+    persist("sr.meta", { lang: langRef.current, speed: speedRef.current, snd: sndRef.current, games: gamesRef.current, pagesUrl: pagesUrlRef.current, voiceURIs: voiceURIsRef.current, speechRate: speechRateRef.current, speechPitch: speechPitchRef.current, audioV: 2 });
   };
   useEffect(() => {
     if (phase === "load") return;
-    const t = setTimeout(() => persist("sr.meta", { lang, speed, snd, pagesUrl, voiceURIs, speechRate, speechPitch, audioV: 2 }), 600);
+    const t = setTimeout(() => persist("sr.meta", { lang, speed, snd, games, pagesUrl, voiceURIs, speechRate, speechPitch, audioV: 2 }), 600);
     return () => clearTimeout(t);
-  }, [lang, speed, snd, pagesUrl, voiceURIs, speechRate, speechPitch, phase]);
+  }, [lang, speed, snd, games, pagesUrl, voiceURIs, speechRate, speechPitch, phase]);
   useEffect(() => {
     const h = () => { if (document.visibilityState === "hidden") flush(); };
     document.addEventListener("visibilitychange", h);
@@ -2705,15 +2735,17 @@ export default function App() {
         {/* Vokal-Blitz. Its own label is the exercise: three vowels, no icon to
             decode. Smaller and off to the side because reading practice stays
             the default action. */}
-        <button onClick={startVowel} className="bigbtn" style={{
-          ...cardSt, position: "absolute", bottom: 22, right: 62, width: 88, height: 88,
-          borderRadius: "50%", fontSize: 27, fontWeight: 900, letterSpacing: 1,
-          color: C.blue, cursor: "pointer"
-        }}>a e i</button>
+        {games.vowel && (
+          <button onClick={startVowel} className="bigbtn" style={{
+            ...cardSt, position: "absolute", bottom: 22, right: 62, width: 88, height: 88,
+            borderRadius: "50%", fontSize: 27, fontWeight: 900, letterSpacing: 1,
+            color: C.blue, cursor: "pointer"
+          }}>a e i</button>
+        )}
 
         {/* Buchstaben-Blitz. Appears only while a shape pair is above threshold,
             labelled with the pair itself so there is nothing to decode. */}
-        {workPairs.length > 0 && (
+        {games.letters && workPairs.length > 0 && (
           <button onClick={() => startLetters(workPairs[0])} className="bigbtn" style={{
             ...cardSt, position: "absolute", bottom: 22, left: 62, width: 88, height: 88,
             borderRadius: "50%", fontSize: 30, fontWeight: 900, letterSpacing: TRACK,
@@ -2725,15 +2757,17 @@ export default function App() {
             fixing a specific error he is making, it is the one place a word
             cannot be recognised from memory. Labelled with a Krogufant rather
             than a word — the exercise itself, the way "a e i" and "b d" are. */}
-        <button onClick={startMix} aria-label="Tier-Blitz" className="bigbtn" style={{
-          ...cardSt, position: "absolute", bottom: 22, right: 158, width: 88, height: 88,
-          borderRadius: "50%", cursor: "pointer", padding: 0, overflow: "hidden",
-          display: "flex", alignItems: "center", justifyContent: "center"
-        }}>
-          <span style={{ transform: "scale(.92)", pointerEvents: "none" }}>
-            <MixCreature trip={KROGU} w={52} />
-          </span>
-        </button>
+        {games.mix && (
+          <button onClick={startMix} aria-label="Tier-Blitz" className="bigbtn" style={{
+            ...cardSt, position: "absolute", bottom: 22, right: 158, width: 88, height: 88,
+            borderRadius: "50%", cursor: "pointer", padding: 0, overflow: "hidden",
+            display: "flex", alignItems: "center", justifyContent: "center"
+          }}>
+            <span style={{ transform: "scale(.92)", pointerEvents: "none" }}>
+              <MixCreature trip={KROGU} w={52} />
+            </span>
+          </button>
+        )}
 
         <button onClick={() => openAch("home")} className="bigbtn" style={{
           position: "absolute", bottom: 12, left: 12, width: 56, height: 56, fontSize: 26,
@@ -3209,7 +3243,11 @@ export default function App() {
     const totalWordsN = plist.reduce((a, l) => a + l.length, 0);
     /* Badges travel with the words. Leaving them out meant a device move wiped
        every award he had earned while the reading progress arrived intact. */
-    const fullExport = JSON.stringify({ de: data.de, en: data.en, ach, meta: { lang, speed, snd } });
+    const fullExport = JSON.stringify({ de: data.de, en: data.en, ach, meta: { lang, speed, snd, games } });
+    /* Shown beside the b/d switch so the "an" state is honest: the launcher
+       still needs a pair actually costing him answers to have something to
+       drill, and saying which one it is beats a knob that looks broken. */
+    const workPairsDash = letterPairsNeedingWork(PL, dashLang);
 
     return (
       <div className="bw" style={{ ...wrap, alignItems: "stretch", padding: 14, gap: 12, overflowY: "auto" }}>
@@ -3225,6 +3263,38 @@ export default function App() {
                 ...cardSt, borderRadius: 12, width: 40, height: 36, fontSize: 18, cursor: "pointer",
                 borderColor: dashLang === l ? C.blue : C.ink, borderWidth: dashLang === l ? 3 : 2
               }}>{l === "de" ? "🇩🇪" : "🇬🇧"}</button>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ ...cardSt, padding: 14 }}>
+          <div style={{ fontWeight: 800, marginBottom: 4, fontSize: 15 }}>Übungen auf dem Startbildschirm</div>
+          <div style={{ fontSize: 12, color: "#8CA0B5", marginBottom: 10 }}>
+            Was hier aus ist, taucht auf dem Startbildschirm nicht auf. Der Buchstaben-Blitz verschwindet
+            sonst von selbst, sobald die Übung selbst gut läuft — was nichts darüber sagt, ob die
+            Verwechslung beim echten Lesen weg ist. Diese Entscheidung trifft jetzt niemand außer dir.
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {[
+              { k: "vowel", icon: "a e i", name: "Vokal-Blitz", note: "Welcher Vokal steckt im gehörten Wort?" },
+              { k: "letters", icon: "b d", name: "Buchstaben-Blitz", note: workPairsDash.length ? `aktuelles Paar: ${workPairsDash[0].a} ${workPairsDash[0].b} (${workPairsDash[0].count}×)` : "gerade kein Paar über der Schwelle — der Knopf bleibt dann aus" },
+              { k: "mix", icon: "🐘", name: "Tier-Blitz", note: "Silbe für Silbe ein Fantasietier bauen" }
+            ].map((g) => (
+              <div key={g.k} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ width: 42, textAlign: "center", fontWeight: 900, fontSize: 15 }}>{g.icon}</span>
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  <span style={{ fontWeight: 700, fontSize: 14 }}>{g.name}</span>
+                  <span style={{ display: "block", fontSize: 11, color: "#8CA0B5" }}>{g.note}</span>
+                </span>
+                <button data-game-toggle={g.k} data-on={games[g.k] ? "1" : "0"}
+                  onClick={() => setGames((x) => ({ ...x, [g.k]: !x[g.k] }))} style={{
+                    ...cardSt, borderRadius: 14, padding: "6px 14px", fontSize: 14, fontWeight: 800,
+                    cursor: "pointer", minWidth: 62,
+                    background: games[g.k] ? C.green : "#F2F6FA",
+                    color: games[g.k] ? "#fff" : "#9FB0C2",
+                    borderColor: games[g.k] ? C.ink : "#D6E4F2"
+                  }}>{games[g.k] ? "an" : "aus"}</button>
+              </div>
             ))}
           </div>
         </div>
