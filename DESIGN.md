@@ -408,6 +408,36 @@ used to sit inline in the reading loop, so mini-game minutes slid the ring past
 for good. `test_daily_credit` asserts this, and fails if the day record is
 inlined back into one handler.
 
+### The ring and the day's credit are one test
+
+`dayPct(sec)` and `dayDone(sec)` are the only two places the 600 s goal is
+read. `dayPct` **floors**, which is what makes `dayPct(sec) === 100` exactly
+equivalent to `dayDone(sec)`. Do not switch it back to rounding, and do not
+inline `sec >= 600` at a new call site.
+
+The ring used to print `Math.round(sec / 6)` clamped at 100 while `calcStreak`
+and the flame tested `sec >= 600`. Those are different tests, and everything in
+**[597, 600) displayed 100% and earned nothing**. That is not a corner case,
+because the child stops the moment the ring reads full: in a real export half
+of all full sessions ended within six seconds of the goal, and two of twelve
+landed inside the dead window — 599.715 s and 598.076 s. The second one cost a
+five-day streak that had actually been done, and the `f3` badge with it, on a
+day that showed him 100%. A rounded display is a promise the credit rule then
+refused to keep.
+
+`test_day_goal` sweeps day totals across the boundary and asserts the two
+agree at every point; it fails on the old build at 598.076 s.
+
+**The v3 migration pays out the days already lost to this.** It runs once over
+`L.days` and credits exactly the days the *old* display rounded up to 100% —
+`s < 600 && Math.round(s / 6) >= 100` — leaving every genuinely short day
+alone. It is idempotent, but it is still persisted at load rather than kept in
+memory, for the same reason the achievement `seen` seeding is: a migration that
+re-derives itself on every start is reading data that has since moved. The
+repair is deliberately written against the superseded display rule, which is
+the only thing that makes "he was told this day was finished" recoverable
+after the fact.
+
 ### Active time is the span between answers, capped
 
 Each answer credits the wall clock since the previous answer — `span()`, capped

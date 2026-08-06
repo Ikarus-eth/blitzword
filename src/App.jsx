@@ -203,10 +203,27 @@ const shuffle = (a) => {
   return b;
 };
 const clone = (o) => JSON.parse(JSON.stringify(o));
-const freshLang = () => ({ v: 2, words: {}, coins: 0, days: {} });
+
+/* ---- the daily goal is one number and one predicate -------------------------
+   The ⏱ ring used to print `Math.round(sec / 6)` and clamp at 100 while the
+   flame and calcStreak tested `sec >= 600`. Those are not the same test:
+   anything in [597, 600) displayed 100% and earned nothing. That gap is not a
+   corner case, because he stops the moment the ring reads full — in a real
+   export half of all full sessions ended within six seconds of the goal, and
+   two of twelve landed inside the dead window (599.7 s and 598.1 s), the second
+   of which silently cost a five-day streak that had been earned.
+   `Math.floor` makes `dayPct(sec) === 100` exactly equivalent to
+   `dayDone(sec)`, so display and credit cannot drift apart again. Every site
+   that shows a percentage or decides a day goes through these two. */
+const DAY_GOAL = 600;
+const dayPct = (sec) => Math.min(100, Math.floor(((sec || 0) / DAY_GOAL) * 100));
+const dayDone = (sec) => (sec || 0) >= DAY_GOAL;
+
+const freshLang = () => ({ v: 3, words: {}, coins: 0, days: {} });
 const migrate = (L) => {
   if (!L) return freshLang();
-  L.v = 2;
+  const wasV = L.v || 0;
+  L.v = 3;
   if (!L.words) L.words = {};
   Object.keys(L.words).forEach((k) => {
     const w = L.words[k];
@@ -226,6 +243,18 @@ const migrate = (L) => {
     }
   });
   if (!L.days) L.days = {};
+  /* v3 — pay out the days the old ring promised and the old streak refused.
+     Runs once, and only over days the previous display actually rounded up to
+     100%; a day he genuinely stopped short of is left alone. Idempotent by
+     construction (a repaired day no longer satisfies `s < DAY_GOAL`), but it is
+     persisted at load anyway rather than living in memory, so the repair is not
+     re-derived on every start. */
+  if (wasV < 3) {
+    Object.keys(L.days).forEach((k) => {
+      const d = L.days[k];
+      if (d && typeof d.s === "number" && d.s < DAY_GOAL && Math.round(d.s / 6) >= 100) d.s = DAY_GOAL;
+    });
+  }
   if (typeof L.coins !== "number") L.coins = 0;
   return L;
 };
@@ -963,9 +992,9 @@ function creditDay(L, sec) {
 function calcStreak(days) {
   let n = 0;
   const d = new Date();
-  if ((days[tISO(d)] || {}).s >= 600) n++;
+  if (dayDone((days[tISO(d)] || {}).s)) n++;
   d.setDate(d.getDate() - 1);
-  while ((days[tISO(d)] || {}).s >= 600) { n++; d.setDate(d.getDate() - 1); }
+  while (dayDone((days[tISO(d)] || {}).s)) { n++; d.setDate(d.getDate() - 1); }
   return n;
 }
 
@@ -1799,10 +1828,10 @@ function Ring({ frac, size = 48, stroke = 5, color = C.gold, children }) {
   );
 }
 function DayRing({ sec, size = 48 }) {
-  const pct = Math.min(100, Math.round(sec / 6));
-  const done = sec >= 600;
+  const pct = dayPct(sec);
+  const done = dayDone(sec);
   return (
-    <Ring frac={sec / 600} size={size} color={done ? C.green : C.gold}>
+    <Ring frac={sec / DAY_GOAL} size={size} color={done ? C.green : C.gold}>
       {done
         ? <span style={{ fontSize: size * 0.42 }}>🔥</span>
         : <span style={{ fontSize: size * 0.3, fontWeight: 900 }}>{pct}%</span>}
@@ -2102,7 +2131,15 @@ export default function App() {
          earned since — which would then be silently marked as already seen. */
       if (!savedAch || savedAch.v !== 3) persist("sr.ach", loadedAch);
       setAch(loadedAch);
-      setData({ de: migrate(de), en: migrate(en) });
+      /* Same reasoning as the achievement seeding above: a migration that only
+         ever lives in memory is re-derived on every start, and the v3 day
+         repair reads the *old* display rule, so it must be written down once
+         while it is still true rather than re-run against drifting data. */
+      const wasOld = { de: !(de && de.v >= 3), en: !(en && en.v >= 3) };
+      const mig = { de: migrate(de), en: migrate(en) };
+      if (wasOld.de) persist("sr.de", mig.de);
+      if (wasOld.en) persist("sr.en", mig.en);
+      setData(mig);
       setPhase("home");
     })();
   }, []);
@@ -2621,7 +2658,7 @@ export default function App() {
             const star = starLevel(ld, LISTS[l]);
             const stk = calcStreak(ld.days);
             const sec = (ld.days[tISO()] || {}).s || 0;
-            const pct = Math.min(100, Math.round(sec / 6));
+            const pct = dayPct(sec);
             const S2 = STR[l];
             return (
               <button key={l} onClick={() => setLang(l)} className="bigbtn" style={{
