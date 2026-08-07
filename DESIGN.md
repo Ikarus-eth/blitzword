@@ -588,6 +588,52 @@ guards against a stale saved rate double-applying the correction.
 
 See README for the two audio failure modes that must never be reintroduced.
 
+### The recording is what bounds any print→sound exercise
+
+Every mode in this app ends in *pick a printed thing* or *pick a grapheme*. The
+core loop flashes a word and takes a tile; Vokal-Blitz plays a word and takes a
+vowel; Tier-Blitz takes a syllable tile. **Nothing anywhere tests grapheme →
+phoneme**, which is the direction that actually fails: he sees `Mond` and says
+"Mund". Testing it needs the child to *produce or choose a sound*, which means
+audio options, speech recognition (unreliable on iOS), or an adult listening.
+
+An audio-choice game — print the word, offer two clips, tap the one that matches
+the letters — was measured against a real export before any of it was built, and
+the numbers said not to build it:
+
+```
+error mass                                     405   100.0%
+  distractor already recorded                   40     9.9%   (20 distinct pairs)
+  distractor is a real German word, no clip    130    32.1%   (69 new clips)
+  distractor is a pseudo-word                  235    58.0%   (unusable)
+```
+
+Both words in a pair need a clip, and only the 200 curriculum words have one, so
+the pool is bounded by the recording rather than by his errors — twenty pairs,
+six of them from a single error each.
+
+The 58% cannot be rescued by recording, and this is the part worth remembering.
+Most of his confusions are with **pseudo-words** (`der`→`ber`, `ist`→`isd`,
+`hatte`→`hotte`), which are pedagogically the right contrasts and are exactly
+what the generated distractors already produce. But if one option is not a word,
+*"pick the one that sounds like a real word"* answers it without reading
+anything:
+
+```
+GUESS AUDIT — "pick the option that is a real German word"
+  real-word distractors only          50.0%    (ceiling was 55%)
+  all distractors incl. pseudo-words  79.0%    fails
+```
+
+So real-word distractors are not a preference, they are the whole constraint,
+and they are the scarce thing.
+
+**Do not "fix" this by flipping the direction.** Playing the target and offering
+two printed words needs no new audio and covers everything — and is the core
+loop with two tiles instead of four. It tests print recognition, which three
+modes already test, and quietly drops the one direction the exercise existed
+for. A version of this that looks cheap and covers 100% is the wrong version.
+
 ## Parent dashboard
 
 Behind a small grey gear, bottom-right of the home screen — deliberately the only
