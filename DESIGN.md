@@ -716,6 +716,44 @@ same run. The badge total is derived from `ACHIEVEMENTS.length` everywhere it is
 displayed — it used to be a literal `100` in the header and in two tests, which
 is why adding a category broke them.
 
+## App icon
+
+Deep blue ground (`#0036A0` top → `#002C88` bottom, the same faint vertical
+gradient the first icon had), yellow bolt `#FDCC04`, white dot. The silhouette is
+the original icon's, recoloured, so the shape is unchanged.
+Two files, `icon-512.png` and `apple-touch-icon.png` (180 px, downsampled from the
+512 master). `manifest.json` and the head block in `src/mkhtml.py` reference them
+by fixed filename, so replacing the icon never touches either file.
+
+**The icon is seen at 76 px, not at 512.** iPad home screen renders it at 76,
+Spotlight at 60. A word-cloud icon was proposed and rejected on a measurement:
+resized to 76 px the text became blue-and-white noise and only the bolt read at
+all. Rule: **no text in the icon** — it has to work as a silhouette. Judge any
+replacement by rendering it at 76 and 60 px, never by looking at the 512.
+
+**No letterforms at all, not even decorative ones.** The rejected image contained
+a mirror-reversed `GOOD` and a mangled `FHACTICE`. Mirror reversal is the exact
+error class the b/d drill exists to correct, and the icon is a glyph he taps
+several times a day.
+
+**Contrast, measured not eyeballed.** Bolt against ground went 2.86–3.20 → 6.79–8.05
+across the gradient (white on light blue → yellow on deep blue); the dot went
+1.48 → 11.25. WCAG relative-luminance ratio. Keep any future icon above the old
+3.20, and measure it rather than judging by eye — a large flat symbol looks fine
+at 512 px at contrast that disappears at 60.
+
+**Bump the `sw.js` cache name whenever an icon changes.** The fetch handler is
+network-first, so an online load gets the new file regardless, but the
+install-time `addAll` pins the icons into the named cache; without a rename the
+old bytes survive there for offline loads. `blitzwort-v2` → `v3` shipped with
+this icon.
+
+**iOS bakes the home-screen icon at install time.** App content self-updates on
+next open; the icon does not. The shortcut has to be deleted and re-added once
+from Safari. Nothing is lost by doing that — progress lives in `localStorage` on
+the origin, not inside the web clip. This is the one exception to "the iPad
+updates itself".
+
 ## Storage
 
 Keys: `sr.de`, `sr.en` (per-language progress), `sr.meta` (settings), `sr.ach`

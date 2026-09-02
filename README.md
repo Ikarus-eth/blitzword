@@ -48,6 +48,10 @@ Then commit `index.html` (and anything else changed). Pages redeploys automatica
   both, iOS serves a stale app indefinitely and deploys appear to do nothing.
 - **No `localStorage` inside a Claude artifact**, but the deployed standalone app
   *does* use it — `speak()`/storage code paths detect which host they're in.
+- **The home-screen icon does not self-update.** iOS bakes the icon into the web
+  clip when the shortcut is created. A new `apple-touch-icon.png` only shows up
+  after the shortcut is deleted and re-added from Safari; app content still
+  updates on its own. Bump the `sw.js` cache name on any icon change.
 - **Audio slowdown is baked into the files**, not applied at playback. `meta.audioV`
   guards against a stale saved playback-rate double-applying it.
 

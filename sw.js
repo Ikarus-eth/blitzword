@@ -1,4 +1,4 @@
-const CACHE = "blitzwort-v2";
+const CACHE = "blitzwort-v3";
 const ASSETS = ["./", "./index.html", "./apple-touch-icon.png", "./icon-512.png", "./manifest.json", "./words/de-audio.json"];
 
 self.addEventListener("install", (e) => {
