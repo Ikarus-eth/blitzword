@@ -58,6 +58,13 @@ Then commit `index.html` (and anything else changed). Pages redeploys automatica
   open and never remembered. Any test that reaches the dashboard has to enter it;
   three did not and one of them only failed because it spelled the gear `\u2699`
   and escaped a grep for the literal character.
+- **The Contents API can lag a push by ~30 s.** Straight after this commit it
+  served the *pre-push* `src/App.jsx` while `index.html` from the same tree was
+  already current — a verify step that trusts it reads a half-updated repo that
+  does not exist and invites a panicked re-push. Verify against the blob SHA in
+  the commit's tree (`/git/trees/<head>?recursive=1` then `/git/blobs/<sha>`):
+  it is content-addressed and cannot be stale. Re-check Contents after, not
+  instead.
 - **`meta` has three write sites** — the export object, the debounced save and
   `flush()`. A field added to one and not the others survives until a device move
   and then vanishes. That is how the badge case was wiped once.
