@@ -453,6 +453,56 @@ repair is deliberately written against the superseded display rule, which is
 the only thing that makes "he was told this day was finished" recoverable
 after the fact.
 
+### The joker — one excused day, and it can only bridge
+
+He lost a 17-day streak to one missed evening. Nothing had actually been
+destroyed: the streak is not stored anywhere. `calcStreak` walks backwards from
+today for as long as the day counts, so a gap does not reset a counter, it just
+stops the walk. A joker is one date in `meta.jok` that the walk steps over.
+
+**The joker moves the streak and nothing else.** `days[iso].s` is untouched, so
+the ⏱ ring, the 14-day chart, the minute milestones and every "he practised X
+minutes" number still report only real practice. An excused day *is* counted in
+the streak total rather than merely stepped over — a number that stalls for a
+day would read to him as the app losing the day, which is the thing being
+repaired.
+
+Three rules, each closing a way of getting the flame for free:
+
+- **`JOKER_GAP` is a rolling seven days, not a calendar week.** "One per week"
+  was the first version, and it is wrong: ISO weeks put a boundary between
+  Sunday and Monday, so two adjacent days fall in different weeks and a whole
+  weekend away would have been bridgeable for free. Seven clear days between
+  excused dates means **a two-day gap can never be bridged**, which is the
+  property worth having.
+- **`JOKER_REACH` is 14 days**, so a streak that has visibly read 0 for a
+  fortnight cannot be resurrected later. `days` only keeps 60 entries anyway.
+- **The day before an excused day must be genuinely practised**, tested with
+  `dayDone` and not with the joker-aware `dayCounts`. A joker bridges a run; it
+  cannot start one out of nothing and cannot chain off another joker. With a
+  seven-day gap the chaining case is already unreachable, but the check states
+  the intent and survives a change to the gap.
+
+**The second argument to `calcStreak` is not optional in practice.** Five places
+report a streak — both home language cards, the play top bar, the dashboard
+"Serie" and `bestStreakDays` in `computeStats` — and a call site that drops
+`jok` shows a different number from the one beside it. That is the same shape as
+the ⏱ ring and the flame disagreeing, which cost a five-day streak once already.
+`test_joker` asserts all five agree and that the badge ladder fires off the
+repaired streak.
+
+**It is parent-only and invisible to him.** The switches live in the dashboard
+behind the PIN; nothing on the child's side mentions a joker. A streak he knows
+can be bought back is no longer a reason to open the app on a tired evening, and
+the whole value of the streak is that pull. What he sees is an intact flame.
+
+Applying one re-runs the achievement check immediately rather than waiting for
+the next answer, because `bestStreakDays` changed the moment the switch flipped.
+
+Blocked days are listed greyed with their reason rather than hidden. A parent
+looking for yesterday needs to see that it is there and why it cannot be used;
+a missing row reads as the feature being broken.
+
 ### Active time is the span between answers, capped
 
 Each answer credits the wall clock since the previous answer — `span()`, capped
@@ -565,7 +615,11 @@ marking on entry.
 
 The export carries `de`, `en`, `ach` and `meta`. Badges were left out originally,
 so moving to a new device restored every word and every level while silently
-wiping the entire trophy case.
+wiping the entire trophy case. `meta.jok` is on the same list for the same
+reason: it is persistent user state, and a device move that dropped it would
+break a live streak on arrival. Anything added to `meta` has to be added to the
+export object, the debounced save *and* `flush()` — three sites, and
+`test_joker` checks the save and the export.
 
 - **Titles are 1–3 short common words** ("5 Treffer!", "Gold!") because the child
   reads them himself in a toast during play. Tapping any badge opens the full
@@ -637,15 +691,33 @@ for. A version of this that looks cheap and covers 100% is the wrong version.
 ## Parent dashboard
 
 Behind a small grey gear, bottom-right of the home screen — deliberately the only
-sub-80px target in the app so it doesn't invite taps.
+sub-80px target in the app so it doesn't invite taps — and behind a four-digit
+PIN (`PARENT_PIN`, currently `1234`).
+
+**The PIN is asked every time and the unlock is never stored.** A remembered
+unlock is the failure that matters: the iPad goes back to him with the reset,
+the import box and the joker switches one tap away. Four digits is cheap enough
+to retype. There is deliberately **no lockout after N wrong tries** — a parent
+shut out of their own export with no way back is a worse outcome than a child
+with time on his hands, and nothing here is worth protecting that hard. The PIN
+is in the bundle in plain text and is not a secret from anyone who looks; it
+stops a seven-year-old wandering in, and that is all it is for.
+
+`pinRef` holds the digits rather than state, so four fast taps cannot race a
+render and drop one.
+
+Three existing tests tapped the gear and expected the dashboard immediately
+(`test_game_toggles`, `test_lang_badges`, `test_reach_accuracy_gate`); their
+helpers now enter the PIN. The gate itself is asserted in `test_joker`, so
+removing it fails a test rather than quietly passing three.
 
 Contains: mastery-level distribution (with the five levels explained inline),
 today's due-review list, the SRS interval distribution, a per-level table, weakest
 words with their most common confusion, **letter-level confusion aggregation**
 (e.g. `a↔e (7×)`, derived by diffing every wrong tile against its target), a
 **Fehlerarten** split, a 14-day
-practice chart, voice settings, and export/import for moving progress between
-devices.
+practice chart, the joker switches, voice settings, and export/import for moving
+progress between devices.
 
 ### Fehlerarten — four mechanisms, four remedies
 

@@ -65,7 +65,14 @@ async function boot(games) {
   const mixLauncher = () => btns().find((b) => b.getAttribute("aria-label") === "Tier-Blitz");
   const toggle = (k) => doc.querySelector(`[data-game-toggle="${k}"]`);
   const meta = () => JSON.parse(window.localStorage.getItem("sr.meta") || "{}");
-  const openDash = async () => { tap(btns().find((b) => b.textContent.trim() === "⚙")); await sleep(250); };
+  // the gear now lands on the parent PIN; the dashboard is one 1234 away.
+  // see test_joker.mjs for the gate itself.
+  const openDash = async () => {
+    tap(btns().find((b) => b.textContent.trim() === "⚙"));
+    await sleep(250);
+    for (const c of "1234") { const k = doc.querySelector(`[data-pin-key="${c}"]`); if (k) tap(k); }
+    await sleep(250);
+  };
   const closeDash = async () => {
     const back = btns().find((b) => b.textContent.trim() === "\u2B05");
     if (!back) throw new Error("dashboard back button not found");

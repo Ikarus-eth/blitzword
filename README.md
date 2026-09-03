@@ -54,6 +54,13 @@ Then commit `index.html` (and anything else changed). Pages redeploys automatica
   updates on its own. Bump the `sw.js` cache name on any icon change.
 - **Audio slowdown is baked into the files**, not applied at playback. `meta.audioV`
   guards against a stale saved playback-rate double-applying it.
+- **The parent dashboard is behind a PIN** (`PARENT_PIN`, `1234`), asked on every
+  open and never remembered. Any test that reaches the dashboard has to enter it;
+  three did not and one of them only failed because it spelled the gear `\u2699`
+  and escaped a grep for the literal character.
+- **`meta` has three write sites** — the export object, the debounced save and
+  `flush()`. A field added to one and not the others survives until a device move
+  and then vanishes. That is how the badge case was wiped once.
 
 ## Deploying
 

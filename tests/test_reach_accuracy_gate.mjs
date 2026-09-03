@@ -60,6 +60,12 @@ async function run(label, hist) {
   // parent dashboard: does it explain the hold?
   tap(buttons().find((b) => b.textContent.trim() === "\u2699"));
   await sleep(250);
+  // the gear lands on the parent PIN now — test_joker.mjs owns the gate itself
+  for (const c of "1234") {
+    const k = window.document.querySelector(`[data-pin-key="${c}"]`);
+    if (k) tap(k);
+  }
+  await sleep(250);
   const explained = /Stufe 2 wartet/.test(body());
 
   // back home, then the stack screen — one card per reached level

@@ -219,6 +219,36 @@ const DAY_GOAL = 600;
 const dayPct = (sec) => Math.min(100, Math.floor(((sec || 0) / DAY_GOAL) * 100));
 const dayDone = (sec) => (sec || 0) >= DAY_GOAL;
 
+/* ---- Joker: one excused day, and only where it can bridge -------------------
+   A missed day never destroyed anything, because the streak is not stored:
+   `calcStreak` walks backwards from today for as long as the day counts. A
+   joker is one date the walk steps over. It does not touch `days[iso].s`, so
+   the ⏱ ring, the 14-day chart and the minute milestones all keep reporting
+   what he actually practised — the joker moves the streak and nothing else.
+
+   Three rules, and each one closes a way of getting the flame for free:
+
+   - `JOKER_GAP` is a rolling seven days, not a calendar week. Calendar weeks
+     put a boundary between Sunday and Monday, so "one per week" would hand out
+     two adjacent jokers for free and bridge a whole weekend away. Seven clear
+     days between excused dates means a two-day gap can never be bridged.
+   - `JOKER_REACH` stops a streak that has visibly read 0 for a fortnight from
+     being resurrected later; `days` only keeps 60 entries anyway.
+   - the day *before* an excused day must be genuinely practised, checked with
+     `dayDone` and not with the joker-aware test. A joker bridges a run. It
+     cannot start one, and it cannot chain off another joker. */
+/* Four digits in front of the dashboard. Not a secret from anyone who reads the
+   bundle — it is a lock on the reset, the import box and the joker switches so
+   a seven-year-old cannot wander in and undo a month. */
+const PARENT_PIN = "1234";
+const JOKER_REACH = 14;
+const JOKER_GAP = 7;
+/* noon, so adding days never lands on a DST hour and shifts the date */
+const atNoon = (k) => new Date(k + "T12:00:00");
+const dayDiff = (a, b) => Math.round((atNoon(a) - atNoon(b)) / 86400000);
+const isoShift = (k, n) => { const d = atNoon(k); d.setDate(d.getDate() + n); return tISO(d); };
+const jokSet = (jok) => (jok instanceof Set ? jok : new Set(jok || []));
+
 const freshLang = () => ({ v: 3, words: {}, coins: 0, days: {} });
 const migrate = (L) => {
   if (!L) return freshLang();
@@ -989,13 +1019,43 @@ function creditDay(L, sec) {
   trimDays(L.days);
   return bonus;
 }
-function calcStreak(days) {
+/* A day counts when it was practised to the goal or when a joker excuses it.
+   Every flame in the app goes through here — the two home cards, the play top
+   bar, the dashboard "Serie" and `bestStreakDays` in computeStats — so the
+   second argument is not optional in practice. A call site that drops it shows
+   a different number from the one next to it, which is exactly the split
+   between the ⏱ ring and the streak that cost a five-day streak once already.
+   An excused day is counted, not merely stepped over: a joker means the day
+   counts, and a number that stalls for a day would read as the app losing it. */
+const dayCounts = (days, J, k) => dayDone((days[k] || {}).s) || J.has(k);
+function calcStreak(days, jok) {
+  const J = jokSet(jok);
   let n = 0;
   const d = new Date();
-  if (dayDone((days[tISO(d)] || {}).s)) n++;
+  if (dayCounts(days, J, tISO(d))) n++;
   d.setDate(d.getDate() - 1);
-  while (dayDone((days[tISO(d)] || {}).s)) { n++; d.setDate(d.getDate() - 1); }
+  while (dayCounts(days, J, tISO(d))) { n++; d.setDate(d.getDate() - 1); }
   return n;
+}
+/* The gaps inside the reach window, newest first, each with the reason it can
+   or cannot be excused. The reason is shown rather than the row being hidden:
+   a parent looking for yesterday needs to see that it is there and why it is
+   greyed, or a missing row reads as the feature being broken. */
+function jokerRows(days, jok) {
+  const list = Array.isArray(jok) ? jok : [...jokSet(jok)];
+  const out = [];
+  for (let i = 1; i <= JOKER_REACH; i++) {
+    const k = isoShift(tISO(), -i);
+    if (dayDone((days[k] || {}).s)) continue;            // nothing to excuse
+    const on = list.includes(k);
+    let why = null;
+    if (!on) {
+      if (!dayDone((days[isoShift(k, -1)] || {}).s)) why = "nostreak";
+      else if (list.some((j) => j !== k && Math.abs(dayDiff(j, k)) < JOKER_GAP)) why = "spent";
+    }
+    out.push({ iso: k, on, can: on || !why, why, sec: (days[k] || {}).s || 0 });
+  }
+  return out;
 }
 
 /* ------------------------- parent analytics ---------------------- */
@@ -1472,7 +1532,7 @@ const ACHIEVEMENTS = [
    "Zwei Sprachen!" and "Alles offen!" are not claims about reading a particular
    language. Time at the iPad is time at the iPad, so those stay pooled and land
    in both galleries at once. */
-function computeStats(data, ach, lang) {
+function computeStats(data, ach, lang, jok) {
   const other = lang === "de" ? "en" : "de";
   const L = data[lang], O = data[other];
   const list = LISTS[lang], oList = LISTS[other];
@@ -1500,7 +1560,7 @@ function computeStats(data, ach, lang) {
 
     /* pooled — the `shared` badges read these */
     minutesToday: (((L.days[today] || {}).s || 0) + ((O.days[today] || {}).s || 0)) / 60,
-    bestStreakDays: Math.max(calcStreak(L.days), calcStreak(O.days)),
+    bestStreakDays: Math.max(calcStreak(L.days, jok), calcStreak(O.days, jok)),
     bothTried: w.some((x) => x.r + x.wr > 0) && Object.values(O.words).some((x) => x.r + x.wr > 0),
     bothReach10: reachLevel(L, list) === 10 && reachLevel(O, oList) === 10,
 
@@ -1578,8 +1638,8 @@ const unseenSet = (ach, lg) => ACHIEVEMENTS.filter((a) => ach[lg].unlocked[a.id]
 const unseenAny = (ach) => unseenSet(ach, "de").length + unseenSet(ach, "en").length;
 /* returns the achievement objects that just became true in `lang`'s gallery and
    weren't already unlocked there — caller merges these into that set */
-function checkNewUnlocks(data, ach, lang) {
-  const S = computeStats(data, ach, lang);
+function checkNewUnlocks(data, ach, lang, jok) {
+  const S = computeStats(data, ach, lang, jok);
   return ACHIEVEMENTS.filter((a) => !ach[lang].unlocked[a.id] && a.check(S));
 }
 
@@ -1938,9 +1998,9 @@ function Chip({ word, ws }) {
   return <span style={{ ...base, background: bg, borderColor: bc, color: col }}>{word} {mark}{ti >= 0 ? TIER[ti] : ""}</span>;
 }
 
-function Stat({ label, value }) {
+function Stat({ label, value, hook }) {
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+    <div {...(hook || {})} style={{ display: "flex", flexDirection: "column", gap: 2 }}>
       <span style={{ fontSize: 11, color: "#8CA0B5", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>{label}</span>
       <span style={{ fontSize: 21, fontWeight: 900 }}>{value}</span>
     </div>
@@ -2066,6 +2126,9 @@ export default function App() {
   const [speed, setSpeed] = useState(3);
   const [snd, setSnd] = useState(true);
   const [games, setGames] = useState(GAMES_DEFAULT);
+  const [jok, setJok] = useState([]);            // excused days, ISO strings
+  const [pin, setPin] = useState("");            // parent gate, in memory only
+  const [pinBad, setPinBad] = useState(false);
   const [data, setData] = useState(null);
   const [stage, setStage] = useState("fix");    // fix|word|answer|fb
   const [cur, setCur] = useState(null);
@@ -2094,6 +2157,8 @@ export default function App() {
   const speedRef = useRef(speed); speedRef.current = speed;
   const sndRef = useRef(snd);     sndRef.current = snd;
   const gamesRef = useRef(games); gamesRef.current = games;
+  const jokRef = useRef(jok);     jokRef.current = jok;
+  const pinRef = useRef("");      // the digits so far, so four fast taps cannot race a render
   const pagesUrlRef = useRef(pagesUrl); pagesUrlRef.current = pagesUrl;
   const achRef = useRef(ach);     achRef.current = ach;
   const voiceURIsRef = useRef(voiceURIs); voiceURIsRef.current = voiceURIs;
@@ -2124,14 +2189,14 @@ export default function App() {
     const active = langRef.current, other = otherLang(active);
     const stamp = (set, list) => ({ unlocked: { ...set.unlocked, ...Object.fromEntries(list.map((a) => [a.id, tISO()])) } });
     let updated = achRef.current;
-    const newly = checkNewUnlocks(newData, updated, active);
+    const newly = checkNewUnlocks(newData, updated, active, jokRef.current);
     if (newly.length) updated = setBook(updated, active, stamp(updated[active], newly));
     /* The pooled badges — minutes, day streak, both-languages — become true in
        the other gallery at the same instant, so they are unlocked there too but
        silently: the toast belongs to the game he is actually playing, and one
        badge popping up twice would read as a bug. The trophy star sends him to
        the other gallery to find it. */
-    const alsoOther = checkNewUnlocks(newData, updated, other).filter((a) => a.shared);
+    const alsoOther = checkNewUnlocks(newData, updated, other, jokRef.current).filter((a) => a.shared);
     if (alsoOther.length) updated = setBook(updated, other, stamp(updated[other], alsoOther));
     achRef.current = updated;
     setAch(updated);
@@ -2149,6 +2214,7 @@ export default function App() {
         if (typeof meta.speed === "number") setSpeed(Math.min(9, Math.max(0, Math.round(meta.speed))));
         if (meta.snd === false) setSnd(false);
         if (meta.games) setGames(normGames(meta.games));
+        if (Array.isArray(meta.jok)) setJok(meta.jok.filter((k) => typeof k === "string"));
         if (typeof meta.pagesUrl === "string") setPagesUrl(meta.pagesUrl);
         if (meta.voiceURIs && typeof meta.voiceURIs === "object") setVoiceURIs(meta.voiceURIs);
         if (typeof meta.speechRate === "number" && meta.audioV >= 2) setSpeechRate(meta.speechRate);
@@ -2185,13 +2251,13 @@ export default function App() {
   const flush = () => {
     const d = dataRef.current;
     if (d) { persist("sr.de", d.de); persist("sr.en", d.en); }
-    persist("sr.meta", { lang: langRef.current, speed: speedRef.current, snd: sndRef.current, games: gamesRef.current, pagesUrl: pagesUrlRef.current, voiceURIs: voiceURIsRef.current, speechRate: speechRateRef.current, speechPitch: speechPitchRef.current, audioV: 2 });
+    persist("sr.meta", { lang: langRef.current, speed: speedRef.current, snd: sndRef.current, games: gamesRef.current, jok: jokRef.current, pagesUrl: pagesUrlRef.current, voiceURIs: voiceURIsRef.current, speechRate: speechRateRef.current, speechPitch: speechPitchRef.current, audioV: 2 });
   };
   useEffect(() => {
     if (phase === "load") return;
-    const t = setTimeout(() => persist("sr.meta", { lang, speed, snd, games, pagesUrl, voiceURIs, speechRate, speechPitch, audioV: 2 }), 600);
+    const t = setTimeout(() => persist("sr.meta", { lang, speed, snd, games, jok, pagesUrl, voiceURIs, speechRate, speechPitch, audioV: 2 }), 600);
     return () => clearTimeout(t);
-  }, [lang, speed, snd, games, pagesUrl, voiceURIs, speechRate, speechPitch, phase]);
+  }, [lang, speed, snd, games, jok, pagesUrl, voiceURIs, speechRate, speechPitch, phase]);
   useEffect(() => {
     const h = () => { if (document.visibilityState === "hidden") flush(); };
     document.addEventListener("visibilitychange", h);
@@ -2616,7 +2682,26 @@ export default function App() {
   const goHome = () => { modeRef.current = { t: "normal", lvl: 0 }; flush(); setPhase("home"); };
   const afterLevelUp = () => { setNewLvl(null); startChunk(); };
   const openStack = (from) => { backRef.current = from; setShowData(false); setPhase("stack"); };
-  const openParent = () => { setDashLang(lang); setShowData(false); setImportText(""); setImportMsg(null); setLinkOut(""); setPhase("parent"); };
+  /* The gear asks for the PIN every single time and the unlock is never stored.
+     A remembered unlock is the failure that matters here: the iPad goes back to
+     him with the dashboard — and the reset, the import box and the joker
+     switches — one tap away. Four digits is cheap enough to retype.
+     Deliberately no lockout after N wrong tries: a parent shut out of the
+     export with no way back is a worse outcome than a child with time on his
+     hands, and there is nothing here worth protecting that hard. */
+  const openParent = () => { pinRef.current = ""; setPin(""); setPinBad(false); setPhase("pin"); };
+  const enterParent = () => { setDashLang(lang); setShowData(false); setImportText(""); setImportMsg(null); setLinkOut(""); setPhase("parent"); };
+  /* Applying a joker moves `bestStreakDays`, so the ladder is re-checked here
+     rather than waiting for the next answer — the badge belongs to the streak,
+     and the streak changed the moment the switch was flipped. */
+  const toggleJoker = (k, allowed) => {
+    if (!allowed) return;
+    const cur = jokRef.current || [];
+    const next = (cur.includes(k) ? cur.filter((x) => x !== k) : [...cur, k]).sort().slice(-60);
+    jokRef.current = next;
+    setJok(next);
+    runAchCheck(dataRef.current);
+  };
   const openAch = (from) => {
     backRef.current = from; setSelectedAch(null);
     setAchLang(lang); achViewed.current = new Set([lang]);
@@ -2686,7 +2771,7 @@ export default function App() {
           {["de", "en"].map((l) => {
             const ld = data[l], sel = l === lang;
             const star = starLevel(ld, LISTS[l]);
-            const stk = calcStreak(ld.days);
+            const stk = calcStreak(ld.days, jok);
             const sec = (ld.days[tISO()] || {}).s || 0;
             const pct = dayPct(sec);
             const S2 = STR[l];
@@ -2700,7 +2785,7 @@ export default function App() {
                 <span style={{ fontSize: 50, lineHeight: 1 }}>{l === "de" ? "🇩🇪" : "🇬🇧"}</span>
                 <span style={{ fontSize: 23, fontWeight: 800 }}>{l === "de" ? "Deutsch" : "English"}</span>
                 <span style={{ fontSize: 15, fontWeight: 700, display: "flex", gap: 9, flexWrap: "wrap", justifyContent: "center" }}>
-                  <span>⭐{S2.lvl} {star}</span><span>🪙{ld.coins}</span><span>🔥{stk}</span><span>⏱{pct}% {S2.today}</span>
+                  <span>⭐{S2.lvl} {star}</span><span>🪙{ld.coins}</span><span data-streak-home={l} data-streak={stk}>🔥{stk}</span><span>⏱{pct}% {S2.today}</span>
                 </span>
               </button>
             );
@@ -3223,6 +3308,55 @@ export default function App() {
     );
   }
 
+  /* ------------------------------ parent PIN ------------------------------ */
+  if (phase === "pin") {
+    const push = (c) => {
+      setPinBad(false);
+      if (c === "del") { pinRef.current = pinRef.current.slice(0, -1); setPin(pinRef.current); return; }
+      pinRef.current = (pinRef.current + c).slice(0, PARENT_PIN.length);
+      setPin(pinRef.current);
+      if (pinRef.current.length < PARENT_PIN.length) return;
+      const ok = pinRef.current === PARENT_PIN;
+      pinRef.current = "";
+      setPin("");
+      if (ok) enterParent(); else setPinBad(true);
+    };
+    return (
+      <div className="bw" style={{ ...wrap, alignItems: "center", justifyContent: "center", gap: 18, padding: 16 }}>
+        <style>{css}</style>
+        <button onClick={() => setPhase("home")} className="bigbtn"
+          style={{ position: "absolute", top: 14, left: 14, ...cardSt, width: 56, height: 56, fontSize: 24, borderRadius: 18, cursor: "pointer" }}>⬅</button>
+        <div data-pin-gate data-pin-bad={pinBad ? "1" : "0"} data-pin-len={pin.length}
+          style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
+          <div style={{ fontSize: 44 }}>🔒</div>
+          <div style={{ fontSize: 17, fontWeight: 800 }}>Eltern-Dashboard</div>
+          <div style={{ display: "flex", gap: 12, animation: pinBad ? "bwShake .4s" : "none" }}>
+            {[0, 1, 2, 3].map((i) => (
+              <span key={i} style={{
+                width: 18, height: 18, borderRadius: "50%",
+                border: `3px solid ${pinBad ? C.red : C.ink}`,
+                background: i < pin.length ? (pinBad ? C.red : C.ink) : "transparent"
+              }} />
+            ))}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3,72px)", gap: 10 }}>
+            {["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "del"].map((c, i) => (
+              c === "" ? <span key={i} /> : (
+                <button key={i} data-pin-key={c} onClick={() => push(c)} className="bigbtn" style={{
+                  ...cardSt, height: 62, borderRadius: 18, fontSize: c === "del" ? 22 : 26,
+                  fontWeight: 800, cursor: "pointer"
+                }}>{c === "del" ? "⌫" : c}</button>
+              )
+            ))}
+          </div>
+          <div style={{ fontSize: 12, color: pinBad ? C.red : "#8CA0B5", fontWeight: 700, height: 16 }}>
+            {pinBad ? "Falscher Code." : ""}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   /* --------------------------- parent dashboard --------------------------- */
   if (phase === "parent") {
     const PL = data[dashLang];
@@ -3236,6 +3370,8 @@ export default function App() {
     const ivCounts = intervalCounts(PL);
     const weak = weakestWords(PL);
     const days14 = dailyMinutes(PL, 14);
+    const dashStreak = calcStreak(PL.days, jok);
+    const jRows = jokerRows(PL.days, jok);
     const totalAttempts = Object.values(PL.words).reduce((a, w) => a + w.r + w.wr, 0);
     const totalCorrect = Object.values(PL.words).reduce((a, w) => a + w.r, 0);
     const overallAcc = totalAttempts ? Math.round((totalCorrect / totalAttempts) * 100) : 0;
@@ -3243,7 +3379,7 @@ export default function App() {
     const totalWordsN = plist.reduce((a, l) => a + l.length, 0);
     /* Badges travel with the words. Leaving them out meant a device move wiped
        every award he had earned while the reading progress arrived intact. */
-    const fullExport = JSON.stringify({ de: data.de, en: data.en, ach, meta: { lang, speed, snd, games } });
+    const fullExport = JSON.stringify({ de: data.de, en: data.en, ach, meta: { lang, speed, snd, games, jok } });
     /* Shown beside the b/d switch so the "an" state is honest: the launcher
        still needs a pair actually costing him answers to have something to
        drill, and saying which one it is beats a knob that looks broken. */
@@ -3369,7 +3505,51 @@ export default function App() {
           <Stat label="Genauigkeit" value={`${overallAcc}%`} />
           <Stat label="Versuche" value={totalAttempts} />
           <Stat label="Münzen" value={PL.coins} />
-          <Stat label="Serie" value={`${calcStreak(PL.days)} 🔥`} />
+          <Stat label="Serie" value={`${dashStreak} 🔥`} hook={{ "data-streak-dash": 1, "data-streak": dashStreak }} />
+        </div>
+
+        {/* The joker sits next to the streak it repairs. Nothing about it is
+            shown to him: he sees an intact flame and never learns there is a
+            safety net, which is the whole point — a streak he knows can be
+            bought back stops being a reason to open the app on a tired day. */}
+        <div style={{ ...cardSt, padding: 14 }} data-joker-card>
+          <div style={{ fontWeight: 800, marginBottom: 4, fontSize: 15 }}>🃏 Joker</div>
+          <div style={{ fontSize: 12, color: "#8CA0B5", marginBottom: 10 }}>
+            Ein Joker lässt einen verpassten Tag als Serientag zählen — Reisetag, krank, kein iPad dabei.
+            Die geübte Zeit des Tages bleibt, wie sie war; nur die Serie ändert sich. Höchstens ein Joker
+            in sieben Tagen, bis 14 Tage zurück, und nur dort, wo am Tag davor wirklich geübt wurde.
+            Zwei verpasste Tage hintereinander bleiben deshalb eine Lücke.
+          </div>
+          {jRows.length === 0 ? (
+            <div style={{ fontSize: 13, color: "#8CA0B5" }}>Keine Lücken in den letzten 14 Tagen.</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {jRows.map((r) => {
+                const d = atNoon(r.iso);
+                const label = `${["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"][d.getDay()]} ${pad(d.getDate())}.${pad(d.getMonth() + 1)}.`;
+                const note = r.on ? "zählt als Serientag"
+                  : r.why === "spent" ? "innerhalb von 7 Tagen schon ein Joker"
+                    : r.why === "nostreak" ? "Tag davor wurde auch nicht geübt"
+                      : `${Math.round(r.sec / 60)} von 10 min`;
+                return (
+                  <div key={r.iso} data-joker-day={r.iso} data-jok={r.on ? "1" : "0"}
+                    data-can={r.can ? "1" : "0"} data-why={r.why || ""}
+                    style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <span style={{ width: 66, fontWeight: 800, fontSize: 14 }}>{label}</span>
+                    <span style={{ flex: 1, minWidth: 0, fontSize: 11, color: "#8CA0B5" }}>{note}</span>
+                    <button data-joker-btn={r.iso} disabled={!r.can}
+                      onClick={() => toggleJoker(r.iso, r.can)} style={{
+                        ...cardSt, borderRadius: 14, padding: "6px 14px", fontSize: 13, fontWeight: 800,
+                        cursor: r.can ? "pointer" : "default", minWidth: 96,
+                        background: r.on ? C.green : r.can ? "#FFF3D6" : "#F2F6FA",
+                        color: r.on ? "#fff" : r.can ? "#8A5A00" : "#9FB0C2",
+                        borderColor: r.on ? C.ink : r.can ? "#E28C1E" : "#D6E4F2"
+                      }}>{r.on ? "🃏 gesetzt" : "einsetzen"}</button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* A held level is a decision, not a stall — say so, or it reads as a bug */}
@@ -3852,7 +4032,7 @@ export default function App() {
   /* ----------------------------- play ----------------------------- */
   const target = cur ? cur[0] : "";
   const showTiles = stage === "answer" || stage === "fb";
-  const streak = calcStreak(L.days);
+  const streak = calcStreak(L.days, jok);
   const chunkFrac = Math.min(1, Math.max(chunkRef.current.sec / CHUNK_SEC, chunkRef.current.q / CHUNK_Q));
 
   return (
@@ -3879,7 +4059,7 @@ export default function App() {
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <DayRing sec={todaySec} />
-          <span style={{ fontSize: 21, fontWeight: 800 }}>🔥{streak}</span>
+          <span data-streak-play="1" data-streak={streak} style={{ fontSize: 21, fontWeight: 800 }}>🔥{streak}</span>
         </div>
       </div>
 

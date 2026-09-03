@@ -143,6 +143,12 @@ await sleep(300);
 // ---- 4. the export carries the badges -------------------------------------
 tap(p.window, btns(p.window).find((b) => b.textContent.trim() === "⚙"));
 await sleep(300);
+// the dashboard is behind the parent PIN now — test_joker.mjs owns the gate
+for (const c of "1234") {
+  const k = p.window.document.querySelector(`[data-pin-key="${c}"]`);
+  if (k) tap(p.window, k);
+}
+await sleep(300);
 tap(p.window, btns(p.window).find((b) => /Export/.test(b.textContent)));
 await sleep(250);
 const area = p.window.document.querySelector("textarea[readonly]");
