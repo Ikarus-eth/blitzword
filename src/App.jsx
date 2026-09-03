@@ -1019,22 +1019,35 @@ function creditDay(L, sec) {
   trimDays(L.days);
   return bonus;
 }
-/* A day counts when it was practised to the goal or when a joker excuses it.
-   Every flame in the app goes through here — the two home cards, the play top
-   bar, the dashboard "Serie" and `bestStreakDays` in computeStats — so the
-   second argument is not optional in practice. A call site that drops it shows
-   a different number from the one next to it, which is exactly the split
-   between the ⏱ ring and the streak that cost a five-day streak once already.
-   An excused day is counted, not merely stepped over: a joker means the day
-   counts, and a number that stalls for a day would read as the app losing it. */
-const dayCounts = (days, J, k) => dayDone((days[k] || {}).s) || J.has(k);
+/* The streak counts days he practised. A joker lets the walk step over a gap
+   but adds nothing to the total, so the number stays a count of real days and
+   the 📅 ladder still means what it says — "30 Tage" is thirty days at the
+   iPad, not thirty minus however many were bought back.
+
+   This was the other way round first, on the reasoning that a flame stalling
+   for a day would read to him as the app losing the day. That is the weaker
+   argument: he sees the same number instead of a reset to zero, which is
+   already the whole rescue, and "it didn't go up because you didn't practise"
+   is both true and the thing the streak is supposed to teach. Counting the
+   joker inflated every downstream number — the flame, `bestStreakDays` and the
+   day badges — by one per joker.
+
+   Every flame in the app goes through here: the two home cards, the play top
+   bar, the dashboard "Serie" and `bestStreakDays` in computeStats. The second
+   argument is therefore not optional in practice — a call site that drops it
+   shows a different number from the one beside it, which is the same split
+   between the ⏱ ring and the streak that cost a five-day streak once already. */
+const dayBridges = (days, J, k) => dayDone((days[k] || {}).s) || J.has(k);
 function calcStreak(days, jok) {
   const J = jokSet(jok);
   let n = 0;
   const d = new Date();
-  if (dayCounts(days, J, tISO(d))) n++;
+  if (dayDone((days[tISO(d)] || {}).s)) n++;
   d.setDate(d.getDate() - 1);
-  while (dayCounts(days, J, tISO(d))) { n++; d.setDate(d.getDate() - 1); }
+  while (dayBridges(days, J, tISO(d))) {
+    if (dayDone((days[tISO(d)] || {}).s)) n++;   // excused days bridge, they do not count
+    d.setDate(d.getDate() - 1);
+  }
   return n;
 }
 /* The gaps inside the reach window, newest first, each with the reason it can

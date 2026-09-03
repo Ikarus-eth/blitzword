@@ -58,6 +58,14 @@ Then commit `index.html` (and anything else changed). Pages redeploys automatica
   open and never remembered. Any test that reaches the dashboard has to enter it;
   three did not and one of them only failed because it spelled the gear `\u2699`
   and escaped a grep for the literal character.
+- **`test_animal_mix` fails intermittently, roughly 1 run in 8, and it is a
+  timing race in the test rather than a bug.** The English leg plays 4 items and
+  asserts that at least 3 landed in `sr.en.tm` after a fixed 1600 ms wait for the
+  save debounce; a correct answer skips the continue tap, so a fast run can
+  outpace the debounce and record 2. Re-run before treating it as a regression,
+  and check whether the failing assertion is the record count — the anti-guessing
+  assertions in the same file are not timing-dependent and a failure there is
+  real. Do not loosen the threshold to make it quiet.
 - **The Contents API can lag a push by ~30 s.** Straight after this commit it
   served the *pre-push* `src/App.jsx` while `index.html` from the same tree was
   already current — a verify step that trusts it reads a half-updated repo that

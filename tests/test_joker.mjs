@@ -16,6 +16,11 @@
 //   - the day before an excused day must be genuinely practised, so a joker can
 //     bridge a run but can never start one out of nothing.
 //
+// An excused day bridges the walk and adds NOTHING to the total. The streak
+// stays a count of days actually practised, so the 📅 ladder still means what
+// it says. The first build counted it and every downstream number — the flame,
+// bestStreakDays, the day badges — ran one high per joker.
+//
 // Against the pre-change build every check below fails: there is no PIN, no
 // joker card, and the flame stays at 0.
 import { JSDOM } from "jsdom";
@@ -125,7 +130,9 @@ check("yesterday can be excused", a.row(ago(1)).getAttribute("data-can") === "1"
 check("a completed day is not listed", !a.row(ago(2)));
 a.tap(a.jokBtn(ago(1)));
 await sleep(200);
-check("excusing yesterday restores 18 in the dashboard", a.dashStreak() === 18, String(a.dashStreak()));
+check("excusing yesterday restores the run: 17 practised days", a.dashStreak() === 17, String(a.dashStreak()));
+check("the excused day itself adds nothing — 18 calendar days, 17 counted",
+  a.dashStreak() === 17 && a.dashStreak() !== 18, String(a.dashStreak()));
 check("the excused day is marked", a.row(ago(1)).getAttribute("data-jok") === "1");
 
 /* ---- the day itself is untouched: only the streak moved ---- */
@@ -141,10 +148,10 @@ check("the 14-day badge unlocks off the repaired streak", dayBadges.includes("f6
 
 /* ---- every surface reports the same number ---- */
 await a.back();
-check("home card shows 18", a.homeStreak() === 18, String(a.homeStreak()));
+check("home card shows 17", a.homeStreak() === 17, String(a.homeStreak()));
 a.tap(a.btns().find((b) => b.textContent.trim() === "▶"));
 await sleep(300);
-check("play top bar shows 18", a.playStreak() === 18, String(a.playStreak()));
+check("play top bar shows 17", a.playStreak() === 17, String(a.playStreak()));
 check("no uncaught errors", a.errs.length === 0, JSON.stringify(a.errs.map(String)));
 a.window.close();
 
@@ -152,7 +159,7 @@ a.window.close();
    2. it survives a reload, and taking it back breaks the streak again
    ------------------------------------------------------------------------ */
 const b = await boot(buildDays([1], 18), [ago(1)]);
-check("a saved joker is in force on load", b.homeStreak() === 18, String(b.homeStreak()));
+check("a saved joker is in force on load", b.homeStreak() === 17, String(b.homeStreak()));
 await b.openGate(); await b.enter("1234");
 b.tap(b.jokBtn(ago(1)));
 await sleep(200);
@@ -164,7 +171,7 @@ b.window.close();
 /* ---------------------------------------------------------------------------
    3. the allowance rules
       missed: yesterday, 5, 9, 10 and 17 days ago; everything else practised
-      - 1  allowed
+      - 1  allowed; days 2-4 practised behind it, so the streak reads 3 not 4
       - 5  blocked: 4 days after the joker already spent on day 1
       - 9  blocked: day 10 was also missed, so nothing to bridge from
       - 10 allowed: 9 clear days, and day 11 was practised
@@ -190,7 +197,8 @@ check("a second joker at day 10 now blocks day 13", c.row(ago(13)) && !can(13),
 check("day 10 reads as set", c.row(ago(10)).getAttribute("data-jok") === "1");
 check("day 17 is out of reach", !c.row(ago(17)));
 check("today is never offered", !c.row(iso()));
-check("a two-day gap stays broken", c.dashStreak() === 4, String(c.dashStreak()));
+check("a two-day gap stays broken, and the joker adds nothing", c.dashStreak() === 3,
+  String(c.dashStreak()));
 check("no uncaught errors (rules)", c.errs.length === 0, JSON.stringify(c.errs.map(String)));
 c.window.close();
 

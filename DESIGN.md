@@ -462,10 +462,19 @@ stops the walk. A joker is one date in `meta.jok` that the walk steps over.
 
 **The joker moves the streak and nothing else.** `days[iso].s` is untouched, so
 the ⏱ ring, the 14-day chart, the minute milestones and every "he practised X
-minutes" number still report only real practice. An excused day *is* counted in
-the streak total rather than merely stepped over — a number that stalls for a
-day would read to him as the app losing the day, which is the thing being
-repaired.
+minutes" number still report only real practice.
+
+**An excused day bridges the walk and adds nothing to the total.** The flame
+stays a count of days he actually practised, and the 📅 ladder keeps meaning
+what it says: "30 Tage" is thirty days at the iPad, not thirty minus however
+many were bought back. It shipped the other way round once, on the reasoning
+that a flame stalling for a day would read to him as the app losing the day.
+That is the weaker argument — he sees the same number instead of a reset to
+zero, which is already the whole rescue, and "it didn't go up because you didn't
+practise" is both true and the thing a streak is for. Counting the joker ran the
+flame, `bestStreakDays` and the day badges one high per joker; on the first real
+save it showed 16 for 15 practised days. `test_joker` pins the distinction: an
+eighteen-calendar-day span with one excused day reads 17.
 
 Three rules, each closing a way of getting the flame for free:
 
