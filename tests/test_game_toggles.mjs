@@ -70,7 +70,13 @@ async function boot(games) {
   const openDash = async () => {
     tap(btns().find((b) => b.textContent.trim() === "⚙"));
     await sleep(250);
-    for (const c of "1234") { const k = doc.querySelector(`[data-pin-key="${c}"]`); if (k) tap(k); }
+    // the gate is a fresh word-problem each time; see test_joker.mjs for the gate itself
+    const g = doc.querySelector("[data-pin-gate]");
+    if (g) {
+      const ans = String(Number(g.getAttribute("data-gate-a")) * Number(g.getAttribute("data-gate-b")));
+      for (const c of ans) tap(doc.querySelector(`[data-pin-key="${c}"]`));
+      tap(doc.querySelector('[data-pin-key="ok"]'));
+    }
     await sleep(250);
   };
   const closeDash = async () => {

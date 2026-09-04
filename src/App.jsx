@@ -237,10 +237,42 @@ const dayDone = (sec) => (sec || 0) >= DAY_GOAL;
    - the day *before* an excused day must be genuinely practised, checked with
      `dayDone` and not with the joker-aware test. A joker bridges a run. It
      cannot start one, and it cannot chain off another joker. */
-/* Four digits in front of the dashboard. Not a secret from anyone who reads the
-   bundle — it is a lock on the reset, the import box and the joker switches so
-   a seven-year-old cannot wander in and undo a month. */
-const PARENT_PIN = "1234";
+/* ---- the parent gate -------------------------------------------------------
+   A fixed PIN lasted two days. It was never going to last longer: any code
+   typed in front of him is learned by watching, and 1234 does not even need
+   watching. Changing the digits would have bought a week at most, because the
+   weakness is that the secret is constant.
+
+   So there is no secret. The gate asks a fresh arithmetic question every time
+   and the operands are written as German number words, which stacks three
+   barriers a seven-year-old cannot clear at once and an adult clears in
+   seconds: he has to read "siebenundachtzig" — the exact skill this app exists
+   to teach him and which he does not yet have — then hold two numbers, then
+   multiply two digits by one. Watching gives him nothing, because the next
+   question is different. A wrong answer draws a new question, so tapping
+   through the keypad is not a search either.
+
+   No lockout on repeated wrong answers, for the reason it was left out before:
+   a parent shut out of their own export with no way back is worse than a child
+   with time on his hands. Every attempt is logged to `meta.gate` and shown in
+   the dashboard, so a break-in is visible rather than inferred from a streak
+   that looks wrong. */
+const G_ONES = ["null", "eins", "zwei", "drei", "vier", "fünf", "sechs", "sieben", "acht", "neun"];
+const G_TEEN = ["zehn", "elf", "zwölf", "dreizehn", "vierzehn", "fünfzehn", "sechzehn", "siebzehn", "achtzehn", "neunzehn"];
+const G_TENS = ["", "", "zwanzig", "dreißig", "vierzig", "fünfzig", "sechzig", "siebzig", "achtzig", "neunzig"];
+const wordDE = (n) => {
+  if (n < 10) return G_ONES[n];
+  if (n < 20) return G_TEEN[n - 10];
+  const t = Math.floor(n / 10), o = n % 10;
+  return o === 0 ? G_TENS[t] : (o === 1 ? "ein" : G_ONES[o]) + "und" + G_TENS[t];
+};
+/* 23..97 × 3..9: too big to count on fingers, small enough to do in your head
+   at six in the morning. Never a round ten, which is the one case he could
+   guess his way through. */
+const newChallenge = () => {
+  const a = 23 + Math.floor(Math.random() * 75);
+  return { a: a % 10 === 0 ? a + 3 : a, b: 3 + Math.floor(Math.random() * 7) };
+};
 const JOKER_REACH = 14;
 const JOKER_GAP = 7;
 /* noon, so adding days never lands on a DST hour and shifts the date */
@@ -2142,6 +2174,8 @@ export default function App() {
   const [jok, setJok] = useState([]);            // excused days, ISO strings
   const [pin, setPin] = useState("");            // parent gate, in memory only
   const [pinBad, setPinBad] = useState(false);
+  const [chal, setChal] = useState(newChallenge);
+  const [gate, setGate] = useState([]);          // attempt log, newest last
   const [data, setData] = useState(null);
   const [stage, setStage] = useState("fix");    // fix|word|answer|fb
   const [cur, setCur] = useState(null);
@@ -2171,7 +2205,8 @@ export default function App() {
   const sndRef = useRef(snd);     sndRef.current = snd;
   const gamesRef = useRef(games); gamesRef.current = games;
   const jokRef = useRef(jok);     jokRef.current = jok;
-  const pinRef = useRef("");      // the digits so far, so four fast taps cannot race a render
+  const pinRef = useRef("");      // the digits so far, so fast taps cannot race a render
+  const gateRef = useRef(gate);   gateRef.current = gate;
   const pagesUrlRef = useRef(pagesUrl); pagesUrlRef.current = pagesUrl;
   const achRef = useRef(ach);     achRef.current = ach;
   const voiceURIsRef = useRef(voiceURIs); voiceURIsRef.current = voiceURIs;
@@ -2228,6 +2263,7 @@ export default function App() {
         if (meta.snd === false) setSnd(false);
         if (meta.games) setGames(normGames(meta.games));
         if (Array.isArray(meta.jok)) setJok(meta.jok.filter((k) => typeof k === "string"));
+        if (Array.isArray(meta.gate)) setGate(meta.gate.slice(-20));
         if (typeof meta.pagesUrl === "string") setPagesUrl(meta.pagesUrl);
         if (meta.voiceURIs && typeof meta.voiceURIs === "object") setVoiceURIs(meta.voiceURIs);
         if (typeof meta.speechRate === "number" && meta.audioV >= 2) setSpeechRate(meta.speechRate);
@@ -2264,13 +2300,13 @@ export default function App() {
   const flush = () => {
     const d = dataRef.current;
     if (d) { persist("sr.de", d.de); persist("sr.en", d.en); }
-    persist("sr.meta", { lang: langRef.current, speed: speedRef.current, snd: sndRef.current, games: gamesRef.current, jok: jokRef.current, pagesUrl: pagesUrlRef.current, voiceURIs: voiceURIsRef.current, speechRate: speechRateRef.current, speechPitch: speechPitchRef.current, audioV: 2 });
+    persist("sr.meta", { lang: langRef.current, speed: speedRef.current, snd: sndRef.current, games: gamesRef.current, jok: jokRef.current, gate: gateRef.current, pagesUrl: pagesUrlRef.current, voiceURIs: voiceURIsRef.current, speechRate: speechRateRef.current, speechPitch: speechPitchRef.current, audioV: 2 });
   };
   useEffect(() => {
     if (phase === "load") return;
-    const t = setTimeout(() => persist("sr.meta", { lang, speed, snd, games, jok, pagesUrl, voiceURIs, speechRate, speechPitch, audioV: 2 }), 600);
+    const t = setTimeout(() => persist("sr.meta", { lang, speed, snd, games, jok, gate, pagesUrl, voiceURIs, speechRate, speechPitch, audioV: 2 }), 600);
     return () => clearTimeout(t);
-  }, [lang, speed, snd, games, jok, pagesUrl, voiceURIs, speechRate, speechPitch, phase]);
+  }, [lang, speed, snd, games, jok, gate, pagesUrl, voiceURIs, speechRate, speechPitch, phase]);
   useEffect(() => {
     const h = () => { if (document.visibilityState === "hidden") flush(); };
     document.addEventListener("visibilitychange", h);
@@ -2702,7 +2738,10 @@ export default function App() {
      Deliberately no lockout after N wrong tries: a parent shut out of the
      export with no way back is a worse outcome than a child with time on his
      hands, and there is nothing here worth protecting that hard. */
-  const openParent = () => { pinRef.current = ""; setPin(""); setPinBad(false); setPhase("pin"); };
+  const openParent = () => { pinRef.current = ""; setPin(""); setPinBad(false); setChal(newChallenge()); setPhase("pin"); };
+  /* Every attempt is recorded, right or wrong. A gate you cannot tell has been
+     opened is a gate you have to guess about. */
+  const logGate = (ok) => setGate((g) => [...g, { t: Date.now(), ok: ok ? 1 : 0 }].slice(-20));
   const enterParent = () => { setDashLang(lang); setShowData(false); setImportText(""); setImportMsg(null); setLinkOut(""); setPhase("parent"); };
   /* Applying a joker moves `bestStreakDays`, so the ladder is re-checked here
      rather than waiting for the next answer — the badge belongs to the streak,
@@ -3321,49 +3360,54 @@ export default function App() {
     );
   }
 
-  /* ------------------------------ parent PIN ------------------------------ */
+  /* ----------------------------- parent gate ------------------------------ */
   if (phase === "pin") {
     const push = (c) => {
+      if (c === "del") { pinRef.current = pinRef.current.slice(0, -1); setPin(pinRef.current); setPinBad(false); return; }
+      if (c === "ok") {
+        const ok = pinRef.current !== "" && Number(pinRef.current) === chal.a * chal.b;
+        logGate(ok);
+        pinRef.current = "";
+        setPin("");
+        if (ok) { setPinBad(false); enterParent(); return; }
+        /* a fresh question on every miss: guessing cannot converge */
+        setChal(newChallenge());
+        setPinBad(true);
+        return;
+      }
       setPinBad(false);
-      if (c === "del") { pinRef.current = pinRef.current.slice(0, -1); setPin(pinRef.current); return; }
-      pinRef.current = (pinRef.current + c).slice(0, PARENT_PIN.length);
+      pinRef.current = (pinRef.current + c).slice(0, 4);
       setPin(pinRef.current);
-      if (pinRef.current.length < PARENT_PIN.length) return;
-      const ok = pinRef.current === PARENT_PIN;
-      pinRef.current = "";
-      setPin("");
-      if (ok) enterParent(); else setPinBad(true);
     };
     return (
-      <div className="bw" style={{ ...wrap, alignItems: "center", justifyContent: "center", gap: 18, padding: 16 }}>
+      <div className="bw" style={{ ...wrap, alignItems: "center", justifyContent: "center", gap: 16, padding: 16 }}>
         <style>{css}</style>
         <button onClick={() => setPhase("home")} className="bigbtn"
           style={{ position: "absolute", top: 14, left: 14, ...cardSt, width: 56, height: 56, fontSize: 24, borderRadius: 18, cursor: "pointer" }}>⬅</button>
-        <div data-pin-gate data-pin-bad={pinBad ? "1" : "0"} data-pin-len={pin.length}
-          style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
-          <div style={{ fontSize: 44 }}>🔒</div>
-          <div style={{ fontSize: 17, fontWeight: 800 }}>Eltern-Dashboard</div>
-          <div style={{ display: "flex", gap: 12, animation: pinBad ? "bwShake .4s" : "none" }}>
-            {[0, 1, 2, 3].map((i) => (
-              <span key={i} style={{
-                width: 18, height: 18, borderRadius: "50%",
-                border: `3px solid ${pinBad ? C.red : C.ink}`,
-                background: i < pin.length ? (pinBad ? C.red : C.ink) : "transparent"
-              }} />
-            ))}
-          </div>
+        <div data-pin-gate data-pin-bad={pinBad ? "1" : "0"} data-gate-a={chal.a} data-gate-b={chal.b}
+          style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
+          <div style={{ fontSize: 40 }}>🔒</div>
+          <div style={{ fontSize: 16, fontWeight: 800 }}>Eltern-Dashboard</div>
+          <div data-gate-q style={{
+            fontSize: 26, fontWeight: 800, textAlign: "center", lineHeight: 1.25, maxWidth: 340,
+            animation: pinBad ? "bwShake .4s" : "none"
+          }}>{wordDE(chal.a)} mal {wordDE(chal.b)}</div>
+          <div style={{
+            minWidth: 132, height: 54, borderRadius: 16, display: "flex", alignItems: "center",
+            justifyContent: "center", fontSize: 28, fontWeight: 800, letterSpacing: 2,
+            ...cardSt, borderColor: pinBad ? C.red : C.ink, color: pinBad ? C.red : C.ink
+          }}>{pin || "?"}</div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3,72px)", gap: 10 }}>
-            {["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "del"].map((c, i) => (
-              c === "" ? <span key={i} /> : (
-                <button key={i} data-pin-key={c} onClick={() => push(c)} className="bigbtn" style={{
-                  ...cardSt, height: 62, borderRadius: 18, fontSize: c === "del" ? 22 : 26,
-                  fontWeight: 800, cursor: "pointer"
-                }}>{c === "del" ? "⌫" : c}</button>
-              )
+            {["1", "2", "3", "4", "5", "6", "7", "8", "9", "del", "0", "ok"].map((c, i) => (
+              <button key={i} data-pin-key={c} onClick={() => push(c)} className="bigbtn" style={{
+                ...cardSt, height: 60, borderRadius: 18, fontSize: c.length > 1 ? 22 : 26,
+                fontWeight: 800, cursor: "pointer",
+                background: c === "ok" ? C.green : C.card, color: c === "ok" ? "#fff" : C.ink
+              }}>{c === "del" ? "⌫" : c === "ok" ? "✓" : c}</button>
             ))}
           </div>
           <div style={{ fontSize: 12, color: pinBad ? C.red : "#8CA0B5", fontWeight: 700, height: 16 }}>
-            {pinBad ? "Falscher Code." : ""}
+            {pinBad ? "Falsch. Neue Aufgabe." : ""}
           </div>
         </div>
       </div>
@@ -3392,7 +3436,7 @@ export default function App() {
     const totalWordsN = plist.reduce((a, l) => a + l.length, 0);
     /* Badges travel with the words. Leaving them out meant a device move wiped
        every award he had earned while the reading progress arrived intact. */
-    const fullExport = JSON.stringify({ de: data.de, en: data.en, ach, meta: { lang, speed, snd, games, jok } });
+    const fullExport = JSON.stringify({ de: data.de, en: data.en, ach, meta: { lang, speed, snd, games, jok, gate } });
     /* Shown beside the b/d switch so the "an" state is honest: the launcher
        still needs a pair actually costing him answers to have something to
        drill, and saying which one it is beats a knob that looks broken. */
@@ -3558,6 +3602,34 @@ export default function App() {
                         color: r.on ? "#fff" : r.can ? "#8A5A00" : "#9FB0C2",
                         borderColor: r.on ? C.ink : r.can ? "#E28C1E" : "#D6E4F2"
                       }}>{r.on ? "🃏 gesetzt" : "einsetzen"}</button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Who has been at the gate. The joker switches and the import box are
+            behind it, so "did he get in?" needs an answer you can read rather
+            than infer from a streak that looks one day too long. */}
+        <div style={{ ...cardSt, padding: 14 }} data-gate-log data-gate-fails={gate.filter((g) => !g.ok).length}>
+          <div style={{ fontWeight: 800, marginBottom: 4, fontSize: 15 }}>🔑 Zugriffe</div>
+          <div style={{ fontSize: 12, color: "#8CA0B5", marginBottom: 8 }}>
+            Die letzten 20 Versuche am Eltern-Tor, neueste zuerst. Ein ✗ heißt: jemand
+            hat es versucht und die Aufgabe nicht gelöst.
+          </div>
+          {gate.length === 0 ? (
+            <div style={{ fontSize: 13, color: "#8CA0B5" }}>Noch keine Versuche aufgezeichnet.</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              {[...gate].reverse().map((g, i) => {
+                const d = new Date(g.t);
+                return (
+                  <div key={i} style={{ display: "flex", gap: 10, fontSize: 13, alignItems: "center" }}>
+                    <span style={{ color: g.ok ? C.green : C.red, fontWeight: 800, width: 16 }}>{g.ok ? "✓" : "✗"}</span>
+                    <span style={{ fontVariantNumeric: "tabular-nums" }}>
+                      {pad(d.getDate())}.{pad(d.getMonth() + 1)}. {pad(d.getHours())}:{pad(d.getMinutes())}
+                    </span>
                   </div>
                 );
               })}

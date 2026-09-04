@@ -287,6 +287,11 @@ for (let q = 0; q < 4; q++) {
   const rt = tiles().find((t) => /2FBF71|47,\s*191,\s*113/i.test(t.style.borderColor || ""));
   const r = rt ? (rt.querySelector("[data-frag]") || {}).textContent : null;
   if (r) enByInitial += f.filter((x) => x[0].toLowerCase() === r[0].toLowerCase()).length === 1 ? 1 : 0;
+  // Wait for the continue button instead of assuming 300 ms was enough to render
+  // it. When it was not, the next iteration tapped a tile that was still showing
+  // feedback, the tap did nothing, and the item was silently skipped — which is
+  // how a four-item leg recorded two answers and failed the count below.
+  for (let w = 0; w < 14 && !cont(); w++) await sleep(100);
   if (cont()) { tap(cont()); await sleep(200); }
   await sleep(400);
 }
@@ -297,8 +302,19 @@ check("every flashed name is built from English syllables",
   enNames.length >= 2 && badNames.length === 0, badNames.join(", "));
 check("English keeps the anti-guessing property",
   enByInitial === 0, `${enByInitial} of ${enItems} decided by the initial alone`);
-await sleep(1600);                       // outsit the save debounce again
-const enAfter = JSON.parse(window.localStorage.getItem("sr.en")).tm || {};
+// Wait for the save debounce to land rather than assuming a fixed 1600 ms is
+// enough. It is not, under load: this failed about one run in three on a busy
+// machine and on the unmodified build too, always on the record count and never
+// on the anti-guessing checks below. The assertion is unchanged — four items
+// are played and at least three must be recorded — only the waiting is now
+// driven by the condition instead of a stopwatch. If the writes never come the
+// poll times out and the check fails exactly as it did before.
+let enAfter = {};
+for (let w = 0; w < 40; w++) {
+  enAfter = JSON.parse(window.localStorage.getItem("sr.en")).tm || {};
+  if ((enAfter.r || 0) + (enAfter.wr || 0) >= 3) break;
+  await sleep(200);
+}
 const deAfter = JSON.parse(window.localStorage.getItem("sr.de")).tm || {};
 check("English answers land on the English record",
   (enAfter.r || 0) + (enAfter.wr || 0) >= 3, JSON.stringify({ r: enAfter.r, wr: enAfter.wr }));

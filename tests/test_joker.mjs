@@ -21,7 +21,7 @@
 // it says. The first build counted it and every downstream number — the flame,
 // bestStreakDays, the day badges — ran one high per joker.
 //
-// Against the pre-change build every check below fails: there is no PIN, no
+// Against the first build every check below fails: there is no gate, no
 // joker card, and the flame stays at 0.
 import { JSDOM } from "jsdom";
 import { readFileSync } from "fs";
@@ -31,6 +31,14 @@ const LVL1 = ["der", "die", "das", "und", "ist", "ich", "du", "er", "sie", "es",
 const iso = (d = new Date()) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const ago = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return iso(d); };
+
+// an independent copy: if the app's table is wrong the gate is unreadable to
+// the parent too, so the words are asserted rather than trusted
+const W1 = ["null", "eins", "zwei", "drei", "vier", "fünf", "sechs", "sieben", "acht", "neun"];
+const W2 = ["zehn", "elf", "zwölf", "dreizehn", "vierzehn", "fünfzehn", "sechzehn", "siebzehn", "achtzehn", "neunzehn"];
+const W3 = ["", "", "zwanzig", "dreißig", "vierzig", "fünfzig", "sechzig", "siebzig", "achtzig", "neunzig"];
+const wordDE = (n) => n < 10 ? W1[n] : n < 20 ? W2[n - 10]
+  : (n % 10 === 0 ? W3[Math.floor(n / 10)] : (n % 10 === 1 ? "ein" : W1[n % 10]) + "und" + W3[Math.floor(n / 10)]);
 
 const DONE = 700;     // over the 600 s goal
 const SHORT = 120;    // a day he started and did not finish
@@ -91,14 +99,17 @@ async function boot(days, jok) {
   const ach = () => JSON.parse(window.localStorage.getItem("sr.ach") || "{}");
 
   const key = (k) => { const b = q(`[data-pin-key="${k}"]`); if (b) tap(b); };
-  const enter = async (code) => { for (const c of String(code)) key(c); await sleep(250); };
+  const gateQ = () => { const g = q("[data-pin-gate]"); return g ? { a: +g.getAttribute("data-gate-a"), b: +g.getAttribute("data-gate-b") } : null; };
+  const gateText = () => { const e = q("[data-gate-q]"); return e ? e.textContent : ""; };
+  const answer = async (n) => { for (const c of String(n)) key(c); key("ok"); await sleep(250); };
+  const solve = async () => { const c = gateQ(); await answer(c.a * c.b); };
   const openGate = async () => { tap(btns().find((b) => b.textContent.trim() === "⚙")); await sleep(250); };
   const back = async () => {
     const b = btns().find((x) => x.textContent.trim() === "\u2B05");
     if (b) tap(b);
     await sleep(300);
   };
-  return { window, errs, btns, tap, q, homeStreak, dashStreak, playStreak, row, jokBtn, meta, ach, openGate, enter, back };
+  return { window, errs, btns, tap, q, homeStreak, dashStreak, playStreak, row, jokBtn, meta, ach, openGate, answer, solve, gateQ, gateText, back };
 }
 
 let fail = 0;
@@ -113,15 +124,35 @@ const check = (name, cond, extra = "") => {
 const a = await boot(buildDays([1], 18));
 check("streak is 0 with yesterday missed", a.homeStreak() === 0, String(a.homeStreak()));
 
-/* ---- the dashboard is behind the PIN ---- */
+/* ---- the dashboard is behind the gate ----
+   A fixed PIN was cracked in two days, so the gate now draws a fresh question
+   each time and writes the operands as German number words. The three barriers
+   are stacked deliberately: read the words, hold the numbers, multiply. */
 await a.openGate();
-check("gear opens a PIN gate, not the dashboard", !!a.q("[data-pin-gate]") && !a.q("[data-joker-card]"));
-await a.enter("9999");
-check("wrong PIN does not open the dashboard", !!a.q("[data-pin-gate]") && !a.q("[data-joker-card]"));
-check("wrong PIN is reported", a.q("[data-pin-gate]") && a.q("[data-pin-gate]").getAttribute("data-pin-bad") === "1");
-await a.enter("1234");
-check("1234 opens the dashboard", !a.q("[data-pin-gate]") && !!a.q("[data-joker-card]"));
+check("gear opens the gate, not the dashboard", !!a.q("[data-pin-gate]") && !a.q("[data-joker-card]"));
+const q1 = a.gateQ();
+check("the question is two digits by one", q1.a >= 23 && q1.a <= 97 && q1.b >= 3 && q1.b <= 9,
+  `${q1.a} x ${q1.b}`);
+check("no digits on screen — the numbers are German words", !/\d/.test(a.gateText()), a.gateText());
+check("the words are the operands", a.gateText().replace(/\s+/g, " ").trim() === `${wordDE(q1.a)} mal ${wordDE(q1.b)}`,
+  `${a.gateText()} vs ${wordDE(q1.a)} mal ${wordDE(q1.b)}`);
+check("1234 does not open it any more", (await a.answer(1234), !a.q("[data-joker-card]")));
+// still on the gate, with a fresh question drawn by the failure
+const q2 = a.gateQ();
+await a.answer(q2.a * q2.b + 1);
+check("a wrong answer keeps the gate shut", !!a.q("[data-pin-gate]") && !a.q("[data-joker-card]"));
+check("a wrong answer is reported", a.q("[data-pin-gate]").getAttribute("data-pin-bad") === "1");
+const q3 = a.gateQ();
+check("a wrong answer draws a new question, so guessing cannot converge",
+  q3.a !== q2.a || q3.b !== q2.b, `${q2.a}x${q2.b} then ${q3.a}x${q3.b}`);
+check("the stale answer does not work on the new question",
+  (await a.answer(q2.a * q2.b), !a.q("[data-joker-card]") || q2.a * q2.b === q3.a * q3.b));
+await a.solve();
+check("the right answer opens the dashboard", !a.q("[data-pin-gate]") && !!a.q("[data-joker-card]"));
 check("dashboard still shows the export", a.btns().some((b) => /Export/.test(b.textContent)));
+check("every attempt is logged, right and wrong",
+  a.q("[data-gate-log]") && Number(a.q("[data-gate-log]").getAttribute("data-gate-fails")) >= 3,
+  a.q("[data-gate-log]") ? a.q("[data-gate-log]").getAttribute("data-gate-fails") : "no log");
 
 /* ---- the joker rescues the streak ---- */
 check("dashboard agrees the streak is 0", a.dashStreak() === 0, String(a.dashStreak()));
@@ -160,7 +191,7 @@ a.window.close();
    ------------------------------------------------------------------------ */
 const b = await boot(buildDays([1], 18), [ago(1)]);
 check("a saved joker is in force on load", b.homeStreak() === 17, String(b.homeStreak()));
-await b.openGate(); await b.enter("1234");
+await b.openGate(); await b.solve();
 b.tap(b.jokBtn(ago(1)));
 await sleep(200);
 check("taking the joker back drops the streak to 0", b.dashStreak() === 0, String(b.dashStreak()));
@@ -180,7 +211,7 @@ b.window.close();
       - today never listed
    ------------------------------------------------------------------------ */
 const c = await boot(buildDays([1, 5, 9, 10, 13, 17], 25));
-await c.openGate(); await c.enter("1234");
+await c.openGate(); await c.solve();
 c.tap(c.jokBtn(ago(1)));
 await sleep(200);
 const can = (n) => c.row(ago(n)) && c.row(ago(n)).getAttribute("data-can") === "1";
@@ -206,7 +237,7 @@ c.window.close();
    4. a joker cannot invent a streak from nothing
    ------------------------------------------------------------------------ */
 const d = await boot({ [iso()]: { s: 0, b1: 0, b2: 0 }, [ago(1)]: { s: SHORT, b1: 0, b2: 0 } });
-await d.openGate(); await d.enter("1234");
+await d.openGate(); await d.solve();
 check("nothing to bridge from, so nothing is offered", !d.row(ago(1)) || d.row(ago(1)).getAttribute("data-can") === "0");
 check("streak stays 0", d.dashStreak() === 0, String(d.dashStreak()));
 d.window.close();

@@ -54,18 +54,24 @@ Then commit `index.html` (and anything else changed). Pages redeploys automatica
   updates on its own. Bump the `sw.js` cache name on any icon change.
 - **Audio slowdown is baked into the files**, not applied at playback. `meta.audioV`
   guards against a stale saved playback-rate double-applying it.
-- **The parent dashboard is behind a PIN** (`PARENT_PIN`, `1234`), asked on every
-  open and never remembered. Any test that reaches the dashboard has to enter it;
-  three did not and one of them only failed because it spelled the gear `\u2699`
-  and escaped a grep for the literal character.
-- **`test_animal_mix` fails intermittently, roughly 1 run in 8, and it is a
-  timing race in the test rather than a bug.** The English leg plays 4 items and
-  asserts that at least 3 landed in `sr.en.tm` after a fixed 1600 ms wait for the
-  save debounce; a correct answer skips the continue tap, so a fast run can
-  outpace the debounce and record 2. Re-run before treating it as a regression,
-  and check whether the failing assertion is the record count — the anti-guessing
-  assertions in the same file are not timing-dependent and a failure there is
-  real. Do not loosen the threshold to make it quiet.
+- **The parent dashboard is behind a fresh arithmetic question**, asked on every
+  open and never remembered. It was a fixed PIN (`1234`) for two days, until he
+  cracked it. Any test that reaches the dashboard has to solve the question from
+  `data-gate-a`/`data-gate-b`; three tests open the dashboard and one of them only
+  turned up because it spells the gear `\u2699` and escaped a grep for the literal
+  character.
+- **`test_animal_mix` used to fail about 1 run in 3 under load, and the first
+  write-up of why was wrong.** It was filed as the save debounce being too short.
+  It was not: polling for the write did not fix it. The English leg tapped a tile,
+  waited a flat 300 ms for the continue button, and when the render was slower
+  than that the next iteration tapped a tile still showing feedback — the tap did
+  nothing and the item was silently skipped, so a four-item leg recorded two
+  answers and failed the count. It now waits for the button instead of guessing at
+  render time. Both mechanisms were plausible from reading the code and only the
+  measurement separated them; the same thing happened with the ⏱ timer fix. If
+  this file goes red again, check the record count separately from the
+  anti-guessing assertions — those are not timing-dependent and a failure there is
+  real. Do not loosen a threshold to make it quiet.
 - **The Contents API can lag a push by ~30 s.** Straight after this commit it
   served the *pre-push* `src/App.jsx` while `index.html` from the same tree was
   already current — a verify step that trusts it reads a half-updated repo that

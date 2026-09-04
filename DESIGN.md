@@ -703,22 +703,45 @@ Behind a small grey gear, bottom-right of the home screen — deliberately the o
 sub-80px target in the app so it doesn't invite taps — and behind a four-digit
 PIN (`PARENT_PIN`, currently `1234`).
 
-**The PIN is asked every time and the unlock is never stored.** A remembered
-unlock is the failure that matters: the iPad goes back to him with the reset,
-the import box and the joker switches one tap away. Four digits is cheap enough
-to retype. There is deliberately **no lockout after N wrong tries** — a parent
-shut out of their own export with no way back is a worse outcome than a child
-with time on his hands, and nothing here is worth protecting that hard. The PIN
-is in the bundle in plain text and is not a secret from anyone who looks; it
-stops a seven-year-old wandering in, and that is all it is for.
+### The gate has no secret in it
 
-`pinRef` holds the digits rather than state, so four fast taps cannot race a
+It was a fixed four-digit PIN, `1234`, for two days. He cracked it. Changing the
+digits would have bought a week, because **the weakness was that the secret was
+constant** — a code typed in front of him is learned by watching, and that one
+did not even need watching.
+
+So there is no secret. The gate draws a fresh multiplication every time and
+writes the operands as German number words: *siebenundfünfzig mal fünf*, 23–97 ×
+3–9, never a round ten. Three barriers stacked, and he cannot clear all three at
+once: **read** "siebenundfünfzig", which is the exact skill this app exists to
+teach him and which he does not have yet; **hold** two numbers; **multiply** two
+digits by one. Watching gives him nothing, because the next question is
+different. A wrong answer draws a new question, so working the keypad is not a
+search either — there is no fixed target to converge on.
+
+An adult reads it and answers in a few seconds. That asymmetry is the whole
+design, and it decays gracefully: by the time he can read the words and do the
+arithmetic he is ten and the streak game is over.
+
+Still **no lockout after N wrong tries** — a parent shut out of their own export
+with no way back is a worse outcome than a child with time on his hands.
+Instead, **every attempt is logged** to `meta.gate` (last 20, right and wrong)
+and shown in the dashboard as 🔑 Zugriffe. A gate you cannot tell has been opened
+is a gate you have to guess about, and the joker switches sit behind it — a
+self-served joker would otherwise show up only as a streak that looks a day too
+long.
+
+`pinRef` holds the typed digits rather than state, so fast taps cannot race a
 render and drop one.
 
 Three existing tests tapped the gear and expected the dashboard immediately
 (`test_game_toggles`, `test_lang_badges`, `test_reach_accuracy_gate`); their
-helpers now enter the PIN. The gate itself is asserted in `test_joker`, so
-removing it fails a test rather than quietly passing three.
+helpers read `data-gate-a`/`data-gate-b` and answer. Exposing the operands is
+not a back door — they are on screen in words either way. `test_joker` asserts
+the gate itself, including that no digits appear on it, that the words match the
+operands against its own copy of the number table (a wrong table would make the
+gate unreadable to the parent as well), that a wrong answer redraws, and that a
+stale answer does not open the new question.
 
 Contains: mastery-level distribution (with the five levels explained inline),
 today's due-review list, the SRS interval distribution, a per-level table, weakest

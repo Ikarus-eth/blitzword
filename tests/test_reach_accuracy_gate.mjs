@@ -60,10 +60,14 @@ async function run(label, hist) {
   // parent dashboard: does it explain the hold?
   tap(buttons().find((b) => b.textContent.trim() === "\u2699"));
   await sleep(250);
-  // the gear lands on the parent PIN now — test_joker.mjs owns the gate itself
-  for (const c of "1234") {
-    const k = window.document.querySelector(`[data-pin-key="${c}"]`);
-    if (k) tap(k);
+  // the gear lands on the parent gate — test_joker.mjs owns the gate itself
+  {
+    const g = window.document.querySelector("[data-pin-gate]");
+    if (g) {
+      const ans = String(Number(g.getAttribute("data-gate-a")) * Number(g.getAttribute("data-gate-b")));
+      for (const c of ans) tap(window.document.querySelector(`[data-pin-key="${c}"]`));
+      tap(window.document.querySelector('[data-pin-key="ok"]'));
+    }
   }
   await sleep(250);
   const explained = /Stufe 2 wartet/.test(body());
