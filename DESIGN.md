@@ -600,6 +600,20 @@ This is the Tier-Blitz lesson arriving a second time: every assertion passed at
 12 keys. Ask what a seven-year-old could do to be right without doing the thing
 being trained, then *measure whether it pays*.
 
+### Both outcomes wait for the tap
+
+A right answer used to slide away after 1100 ms. That took the word off screen
+at the one moment it is worth looking at — he built it himself and it is
+correct, and that is the version to leave in front of him. It also means nothing
+about the pause tells him which he got before he has read it, and it makes the
+correct case behave exactly like the miss case, which was already hold-on-tap.
+
+The dwell counts toward the day, and that is deliberate: the active-time
+contract says a span covers the feedback he studied, bounded by `IDLE_MAX`, so
+an abandoned screen earns 30 s once and nothing after. Excluding the dwell here
+would have been the exception, not the fix — it would put time outside every
+span, which is the thing the span model exists to prevent.
+
 ### It never touches the reading record
 
 Typing writes to `ws.tp` — the same shape as `vk`, next to it on the word — and

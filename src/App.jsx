@@ -2764,8 +2764,17 @@ export default function App() {
     tScore.current = { r: tScore.current.r + (ok ? 1 : 0), n: tScore.current.n + 1 };
     runAchCheck(newData);
     if (sndRef.current) { ok ? (tBonus ? sfx.bonus() : sfx.ok()) : sfx.no(); }
-    setTFb({ ok, ans });
-    if (ok) setTimeout(typeNext, 1100);   /* a miss waits: the diff is the lesson */
+    /* Both outcomes wait for the tap. A right answer used to slide away after
+       1100 ms, which took the word off screen at the one moment it is worth
+       looking at — he built it himself and it is correct, and that is the
+       version to leave in front of him. It also makes the two outcomes behave
+       the same, so nothing about the pause tells him which he got before he
+       has read it.
+
+       The dwell counts toward the day, and that is the documented contract for
+       every game: the span covers the feedback he studied, bounded by IDLE_MAX,
+       so an abandoned screen earns once and nothing after. */
+    setTFb({ ok, ans, coins: ok ? 2 + tBonus : tBonus });
   };
   const typeNext = () => {
     if (ti + 1 >= tq.length) {
@@ -3387,6 +3396,11 @@ export default function App() {
           {tFb && !tFb.ok && (
             <span style={{ fontSize: 22, fontWeight: 800, color: C.red, letterSpacing: TRACK, textDecoration: "line-through" }}>
               {tFb.ans}
+            </span>
+          )}
+          {tFb && tFb.ok && (
+            <span data-type-ok style={{ fontSize: 22, fontWeight: 800, color: C.green }}>
+              ✓{tFb.coins ? ` +${tFb.coins} 🪙` : ""}
             </span>
           )}
         </div>

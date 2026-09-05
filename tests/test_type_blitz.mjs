@@ -209,6 +209,19 @@ for (const c of word2) b.press(c);
 await sleep(80);
 check("he can spell it correctly from memory", b.typed() === word2, `${b.typed()} vs ${word2}`);
 b.tap(b.q("[data-type-commit]"));
+await sleep(300);
+check("a right answer is marked as right", !!b.q("[data-type-ok]"),
+  b.q("[data-type-ok]") ? b.q("[data-type-ok]").textContent : "no mark");
+// It used to slide away after 1100 ms, which took the word off screen at the
+// one moment worth looking at: he built it himself and it is correct. Both
+// outcomes wait for the tap now, so nothing about the pause tells him which he
+// got before he has read it.
+await sleep(1900);
+check("a right answer WAITS for the tap and does not advance on its own",
+  b.target() === word2 && !b.q("[data-type-commit]"), String(b.target()));
+check("the continue button is there for a right answer too",
+  !!b.btns().find((x) => /Go on|Weiter|Continue|Next/i.test(x.textContent)),
+  b.btns().map((x) => x.textContent).join("|"));
 await waitFor(() => b.rec(word2).tp);
 const rec2 = b.rec(word2);
 check("a hit is recorded under tp", rec2.tp && rec2.tp.r === 1, JSON.stringify(rec2.tp));
