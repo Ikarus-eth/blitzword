@@ -512,6 +512,101 @@ Blocked days are listed greyed with their reason rather than hidden. A parent
 looking for yesterday needs to see that it is there and why it cannot be used;
 a missing row reads as the feature being broken.
 
+## Tipp-Blitz — he writes the word instead of picking it
+
+Read off his export of 4 Sep: **87% of his 454 wrong answers are one wrong
+letter.** Not word confusion — one letter. 52% of those substitutions are in the
+middle of the word, and **42% of everything wrong is one vowel put in place of
+another** (e/a and a/e alone account for 65). Silent-e words run at 52% against
+65% for everything else, with came↔come and make↔made mutual and symmetric.
+
+And the drills are not transferring. He is at **372/412 = 90%** telling m from n
+on a tile in Buchstaben-Blitz and still writes *wemt*, *fimd*, *agaim*, *umder* —
+35 in-word m/n confusions, 31 t/d, 13 b/d. Recognising a letter in isolation and
+producing it inside a word are different skills and only the first was trained.
+
+**The four-tile format cannot reach any of this.** 91% of his substitutions use a
+letter that is not in the target word. Choosing between four whole words somebody
+else assembled never asks him to produce a letter.
+
+### Three ways of being right without spelling, each closed
+
+- **The word is gone before he types.** If it stays up the strategy that pays is
+  copying, and copying is not spelling.
+- **No empty slots.** Four boxes for "ride" hands him the silent e, and dropped
+  letters are 8% of his errors — *rid* for ride, *mad* for made.
+- **Nothing is judged until ✓.** Rejecting a wrong key as he types turns it into
+  tap-until-green, which pays and teaches nothing. A wrong first letter is
+  accepted and stays there.
+
+Exposure has a **1500 ms floor** whatever the speed slider says. The reading loop
+at speed 9 is a 250 ms recognition flash; this asks him to hold the word and
+rebuild it, and at that exposure it would be testing memory instead of spelling.
+
+### The keyboard is the whole design, and the first version was wrong
+
+Not the word's own letters: measured, **91%** of the wrong spellings he actually
+produces use a letter that is not in the target, so that board could not produce
+one of them and therefore could not correct them. Not all 26 either — the search
+cost would sit above the spelling cost for a seven-year-old. So it is the word's
+letters plus the letters he has actually written in their place, derived from his
+`mx` at run time rather than a table fixed once, padded from the pairs he
+confuses across the whole book. On the twelve weakest words that reaches **100%**
+of his recorded misspellings.
+
+It shipped at 12 keys and that was wrong, and only playing it caught it.
+`tools/sim_type.mjs` runs the built game with strategies a child could actually
+use:
+
+| strategy | 12 keys | 14 keys, all vowels |
+|---|---|---|
+| types the word (control) | 100% | — |
+| random tapping | 0% | — |
+| first letter + length, rest guessed | 0% | — |
+| **knows every consonant, guesses the vowel** | **38%** | **9%** |
+| model of his real per-word accuracy | 56% | 69% |
+
+A player who skips the exact step the game exists to train was scoring two thirds
+of what real spelling scores. Boards were coming out with four vowels or fewer,
+so the vowel was a one-in-four guess. **Every board now carries all five vowels**,
+which makes a one-vowel word one in five and a two-vowel word one in twenty-five.
+Language extras (ä ö ü, y) come in only when the word or one of his misspellings
+of it uses them, so a German board does not spend eight of fourteen keys on
+vowels. AC1 held at 235/235 through the change. The 56→69 on the ability model is
+noise across 32 trials and is not claimed as an improvement.
+
+This is the Tier-Blitz lesson arriving a second time: every assertion passed at
+12 keys. Ask what a seven-year-old could do to be right without doing the thing
+being trained, then *measure whether it pays*.
+
+### It never touches the reading record
+
+Typing writes to `ws.tp` — the same shape as `vk`, next to it on the word — and
+leaves `s`, `cc`, `due`, `h` and `everMastered` alone. He can read a word long
+before he can spell it, and a spelling miss must not push a word he reads fine
+back down the ladder or into review.
+
+Words are drawn from those he has met at least `TYPE_MIN_SEEN` times, 3 to 5
+letters, weighted by how often he has got them wrong. **Deliberately not gated on
+`everMastered`**: his five worst words — went, ride, came, find, want — have never
+been mastered, and those are exactly the ones to write. The queue serves words at
+49% mean reading accuracy against 58% for the eligible pool, which is the bias
+working as intended; the ability model still scores about 5 or 6 out of 8, so it
+is hard without being punishing.
+
+Ten badges, like every other category — the header total asserts that, and eight
+broke it. None of them rewards typing fast. Speed is not the skill here and a
+badge for it would push him back toward the guessing the Tier-Blitz foil redesign
+took out.
+
+### Baseline for the only measurement that decides this
+
+**86 medial-vowel errors in 444 attempts on the twelve seed words = 19.4%**, as of
+the 4 Sep export. Per word: came 32%, come 34%, ride 24%, went 22%, want 20%,
+his 18%, can 17%, down 16%, find 12%, make 10%, made 7%, with 5%. If Tipp-Blitz
+works, that figure falls in the *recognition* game. If it does not move, the game
+is entertainment and should be cut.
+
 ### Active time is the span between answers, capped
 
 Each answer credits the wall clock since the previous answer — `span()`, capped

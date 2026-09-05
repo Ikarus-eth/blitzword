@@ -1219,8 +1219,123 @@ const PAIR_RETIRE_ACC = 0.9;
    A threshold cannot see that, because it only ever sees its own scores.
    Someone watching the child read can. So visibility is now a decision, not a
    derivation. */
-const GAME_KEYS = ["vowel", "letters", "mix"];
-const GAMES_DEFAULT = { vowel: true, letters: true, mix: true };
+const GAME_KEYS = ["vowel", "letters", "mix", "type"];
+/* --------------------------- Tipp-Blitz ------------------------------------
+   Every other game asks him to pick. This one asks him to produce, and the
+   record says that is a different skill: he is at 90% telling m from n on a
+   tile in Buchstaben-Blitz and still writes "wemt", "fimd", "agaim", "umder".
+   87% of his wrong answers are one wrong letter, 52% of those in the middle of
+   the word, and 42% of everything wrong is one vowel swapped for another. None
+   of that is reachable by choosing between four whole words somebody else built.
+
+   Three rules, and each closes a way of being right without spelling:
+
+   - The word is gone before he types. If it stays up the strategy that pays is
+     copying, and copying is not spelling.
+   - No empty slots. Showing four boxes for "ride" hands him the silent e, and
+     dropped letters are 8% of his errors — "rid" for ride, "mad" for made.
+   - Nothing is judged until he taps ✓. Rejecting a wrong key as he goes turns
+     it into tap-until-green, which pays and teaches nothing.
+
+   The keyboard is 12 keys, not the word's own letters and not all 26. Measured
+   on his export: 91% of the wrong spellings he actually produces use a letter
+   that is not in the target word, so a board built from the word's letters
+   could not produce a single one of them and therefore could not correct them.
+   All 26 would put the search cost above the spelling cost for a seven-year-old.
+   So the board is the word's letters plus the letters he has actually put in
+   their place, padded from the pairs he confuses across the whole book. On the
+   twelve weakest words that reaches 100% of his recorded misspellings. */
+const TYPE_N = 8;              // items per round; typing is slow, a round stays ~ a vowel round
+const KB_SIZE = 14;
+const KB_FILL = "aeioutnsrdlmhwbcgfpvky";
+const TYPE_MIN_SEEN = 8;       // he has to have met the word before being asked to write it
+/* Never faster than 1.5 s: at speed 9 the reading loop is a recognition flash,
+   but this asks him to hold the word and rebuild it, and a 250 ms exposure
+   would be testing memory rather than spelling. */
+const typeExposure = (speed) => Math.max(1500, DUR[Math.max(0, speed - 2)]);
+
+/* The letters he has actually written in place of others, across the whole
+   book, commonest first. Derived rather than hard-coded so the board follows
+   his errors as they change instead of a table I fixed once. */
+function nearPairs(L) {
+  const cnt = {};
+  Object.entries(L.words || {}).forEach(([w, ws]) => {
+    const all = { ...((ws && ws.mx) || {}), ...(((ws && ws.tp) || {}).mx || {}) };
+    Object.entries(all).forEach(([g, k]) => {
+      if (g.length !== w.length) return;
+      const d = [];
+      for (let i = 0; i < w.length; i++) if (w[i].toLowerCase() !== g[i].toLowerCase()) d.push(i);
+      if (d.length !== 1) return;
+      const key = w[d[0]].toLowerCase() + g[d[0]].toLowerCase();
+      cnt[key] = (cnt[key] || 0) + k;
+    });
+  });
+  return Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a]).map((k) => [k[0], k[1]]);
+}
+/* Every board carries all five vowels, and that is not decoration.
+   Simulated against the build: a player who remembers every consonant and the
+   length and simply guesses the vowel off the board scored 38%, against 56%
+   for a model of his real ability. Two thirds of the achievable score for
+   skipping the exact step the game exists to train — 42% of his wrong answers
+   are one vowel put in place of another. Boards were coming out with four
+   vowels or fewer, so the guess was one in four. With all five present a
+   one-vowel word is one in five and a two-vowel word one in twenty-five, and
+   the strategy stops paying. Language extras (ä ö ü, y) come in only when the
+   word or one of his misspellings of it actually uses them, so a German board
+   does not spend eight of fourteen keys on vowels. */
+const BASE_VOWELS = "aeiou";
+function typeBoard(word, ws, pairs, lang) {
+  const ks = [];
+  const add = (ch) => { if (ch && !ks.includes(ch) && ks.length < KB_SIZE) ks.push(ch); };
+  const lw = word.toLowerCase();
+  for (const ch of lw) add(ch);
+  for (const ch of BASE_VOWELS) add(ch);
+  const own0 = { ...((ws && ws.mx) || {}), ...(((ws && ws.tp) || {}).mx || {}) };
+  const extra = (VOWELS[lang] || "aeiou").split("").filter((v) => !BASE_VOWELS.includes(v));
+  extra.forEach((v) => { if (lw.includes(v) || Object.keys(own0).some((g) => g.toLowerCase().includes(v))) add(v); });
+  const own = { ...((ws && ws.mx) || {}), ...(((ws && ws.tp) || {}).mx || {}) };
+  Object.keys(own).sort((a, b) => own[b] - own[a]).forEach((g) => { for (const ch of g.toLowerCase()) add(ch); });
+  pairs.forEach(([a, b]) => { if (lw.includes(a)) add(b); });
+  for (const ch of KB_FILL) add(ch);
+  return ks.sort();
+}
+/* Words he has met at least TYPE_MIN_SEEN times, 3 to 5 letters, weighted by
+   how often he has actually got them wrong. Deliberately not gated on
+   everMastered: the five worst words in his book (went, ride, came, find,
+   want) have never been mastered, and those are exactly the ones to write. */
+function typeCandidates(L, list) {
+  const reach = reachLevel(L, list);
+  const out = [];
+  list.slice(0, reach).forEach((lvl) => lvl.forEach((e) => {
+    const word = e[0];
+    if (word.length < 3 || word.length > 5) return;
+    if (!/^[a-zA-ZäöüÄÖÜß]+$/.test(word)) return;
+    const ws = L.words[word];
+    if (!ws) return;
+    if ((ws.r || 0) + (ws.wr || 0) < TYPE_MIN_SEEN) return;
+    let w = 1;
+    Object.values(ws.mx || {}).forEach((k) => { w += 3 * k; });
+    if (ws.tp) w += 2 * (ws.tp.wr || 0);
+    out.push({ word, w });
+  }));
+  return out;
+}
+function buildTypeQueue(L, list, lang, n) {
+  const bag = typeCandidates(L, list);
+  const pairs = nearPairs(L);
+  const out = [];
+  while (bag.length && out.length < n) {
+    let total = 0; for (const x of bag) total += x.w;
+    let r = Math.random() * total, k = 0;
+    while (k < bag.length - 1 && (r -= bag[k].w) > 0) k++;
+    const word = bag[k].word;
+    bag.splice(k, 1);
+    out.push({ word, keys: typeBoard(word, L.words[word], pairs, lang) });
+  }
+  return out;
+}
+
+const GAMES_DEFAULT = { vowel: true, letters: true, mix: true, type: true };
 const normGames = (g) => {
   const out = { ...GAMES_DEFAULT };
   if (g && typeof g === "object") GAME_KEYS.forEach((k) => { if (g[k] === false) out[k] = false; });
@@ -1350,9 +1465,10 @@ const CAT_NAMES = {
   gold: ["Turbo & Gold", "Turbo & Gold"],
   vowel: ["Vokal-Blitz", "Vowel Blitz"],
   letters: ["Buchstaben-Blitz", "Letter Blitz"],
-  mix: ["Tier-Blitz", "Animal Blitz"]
+  mix: ["Tier-Blitz", "Animal Blitz"],
+  type: ["Tipp-Blitz", "Type Blitz"]
 };
-const CAT_ORDER = ["start", "streak", "volume", "mastery", "minutes", "days", "speed", "reach", "star", "gold", "vowel", "letters", "mix"];
+const CAT_ORDER = ["start", "streak", "volume", "mastery", "minutes", "days", "speed", "reach", "star", "gold", "vowel", "letters", "mix", "type"];
 
 /* factory for a straight numeric-threshold ladder, DRYs out 8 of the
    10 categories which are otherwise near-identical boilerplate.
@@ -1564,7 +1680,35 @@ const ACHIEVEMENTS = [
   { id: "m10", cat: "mix", icon: "\u{1F393}", de: "Tier-Meister", en: "Animal Master",
     deDesc: "Erreiche 90% richtige Antworten im Tier-Blitz \u2014 \u00fcber mindestens 100 Fragen gerechnet.",
     enDesc: "Reach 90% correct in Animal Blitz \u2014 measured over at least 100 questions.",
-    check: (S) => S.mTotal >= 100 && S.mCorrect / S.mTotal >= 0.9 }
+    check: (S) => S.mTotal >= 100 && S.mCorrect / S.mTotal >= 0.9 },
+
+  /* Tipp-Blitz. Nothing here rewards speed. Typing fast is not the skill and a
+     badge for it would push him back to the guessing the foil redesign took
+     out of Tier-Blitz. */
+  { id: "n1", cat: "type", icon: "\u270F", de: "Erstes Wort getippt!", en: "First Word Typed!",
+    deDesc: "Schreibe dein erstes Wort im Tipp-Blitz.", enDesc: "Type your first word in Type Blitz.",
+    check: (S) => S.tTotal >= 1 },
+  { id: "n2", cat: "type", icon: "\u{1F3C1}", de: "Runde fertig!", en: "Round Done!",
+    deDesc: "Spiele eine ganze Tipp-Blitz-Runde zu Ende.", enDesc: "Play a whole Type Blitz round to the end.",
+    check: (S) => S.tRounds >= 1 },
+  ...ladder("n", "type", "\u270F", [25, 100, 250, 500],
+    (n) => `${n} W\u00f6rter getippt`, (n) => `${n} Words Typed`, "tTotal",
+    (n) => `Schreibe insgesamt ${n} W\u00f6rter im Tipp-Blitz.`,
+    (n) => `Type a total of ${n} words in Type Blitz.`).map((a, i) => ({ ...a, id: `n${i + 3}` })),
+  { id: "n7", cat: "type", icon: "\u{1F4AF}", de: "Alles richtig!", en: "All Correct!",
+    deDesc: "Schaffe eine ganze Tipp-Blitz-Runde ohne einen einzigen Fehler.",
+    enDesc: "Complete a whole Type Blitz round without a single mistake.",
+    check: (S) => S.tPerfect >= 1 },
+  { id: "n8", cat: "type", icon: "\u{1F4DA}", de: "20 W\u00f6rter", en: "20 Words",
+    deDesc: "Schreibe 20 verschiedene W\u00f6rter im Tipp-Blitz.", enDesc: "Type 20 different words in Type Blitz.",
+    check: (S) => S.tWords >= 20 },
+  { id: "n9", cat: "type", icon: "\u{1F4D6}", de: "50 W\u00f6rter", en: "50 Words",
+    deDesc: "Schreibe 50 verschiedene W\u00f6rter im Tipp-Blitz.", enDesc: "Type 50 different words in Type Blitz.",
+    check: (S) => S.tWords >= 50 },
+  { id: "n10", cat: "type", icon: "\u{1F393}", de: "Tipp-Meister", en: "Type Master",
+    deDesc: "Erreiche 90% richtig geschriebene W\u00f6rter im Tipp-Blitz \u2014 \u00fcber mindestens 100 W\u00f6rter gerechnet.",
+    enDesc: "Reach 90% correct in Type Blitz \u2014 measured over at least 100 words.",
+    check: (S) => S.tTotal >= 100 && S.tCorrect / S.tTotal >= 0.9 }
 ];
 
 /* Everything the checks read, for ONE language. Each language keeps its own
@@ -1632,18 +1776,30 @@ function miniStats(L, b) {
   const tm = L.tm || {};
   const mCorrect = tm.r || 0, mTotal = mCorrect + (tm.wr || 0);
   const mAnimals = Object.keys(tm.seen || {}).length;
+  /* `tp` sits on the word next to `vk`, for the same reason: a word he can read
+     but cannot yet spell should not be demoted, so typing keeps its own record
+     and never touches s, cc, due or the review schedule. */
+  let tTotal = 0, tCorrect = 0, tWords = 0;
+  Object.values(L.words).forEach((w) => {
+    if (!w.tp) return;
+    const n = (w.tp.r || 0) + (w.tp.wr || 0);
+    if (!n) return;
+    tTotal += n; tCorrect += w.tp.r || 0; tWords++;
+  });
   return {
     vTotal, vCorrect, vWords, lTotal, lCorrect, lPairsRetired, mTotal, mCorrect, mAnimals,
+    tTotal, tCorrect, tWords,
     vRounds: b.vRounds || 0, vPerfect: b.vPerfect || 0, vBest: b.vBest || 0,
     lRounds: b.lRounds || 0, lPerfect: b.lPerfect || 0, lBest: b.lBest || 0,
-    mRounds: b.mRounds || 0, mPerfect: b.mPerfect || 0, mBest: b.mBest || 0
+    mRounds: b.mRounds || 0, mPerfect: b.mPerfect || 0, mBest: b.mBest || 0,
+    tRounds: b.tRounds || 0, tPerfect: b.tPerfect || 0
   };
 }
 /* one language's gallery plus the bookkeeping only the checks use */
 const freshSet = () => ({
   unlocked: {}, seen: {}, bestStreak: 0, perfectSpeeds: {}, chunksDone: 0, speedChanged: false,
   vRounds: 0, vPerfect: 0, vBest: 0, lRounds: 0, lPerfect: 0, lBest: 0,
-  mRounds: 0, mPerfect: 0, mBest: 0
+  mRounds: 0, mPerfect: 0, mBest: 0, tRounds: 0, tPerfect: 0
 });
 const freshAch = () => ({ v: 3, de: freshSet(), en: freshSet() });
 const otherLang = (l) => (l === "de" ? "en" : "de");
@@ -2149,6 +2305,14 @@ export default function App() {
   const [vfb, setVfb] = useState(null);
   const vScore = useRef({ r: 0, n: 0 });
   const vAt = useRef(0);
+  const [tq, setTq] = useState([]);             // Tipp-Blitz round
+  const [ti, setTi] = useState(0);
+  const [tShow, setTShow] = useState(false);    // word visible? only during the flash
+  const [tTyped, setTTyped] = useState("");
+  const [tFb, setTFb] = useState(null);
+  const tScore = useRef({ r: 0, n: 0 });
+  const tAt = useRef(0);
+  const tTimer = useRef(null);
   const vRun = useRef(0);
   const [lq, setLq] = useState([]);             // Buchstaben-Blitz round
   const [li, setLi] = useState(0);
@@ -2565,6 +2729,70 @@ export default function App() {
     sayWord(vq[vi + 1].word);
   };
 
+  /* ---- Tipp-Blitz ---- */
+  const flashType = (item) => {
+    clearTimeout(tTimer.current);
+    setTShow(true);
+    tTimer.current = setTimeout(() => setTShow(false), typeExposure(speedRef.current));
+  };
+  const startType = () => {
+    const lg = langRef.current;
+    const q = buildTypeQueue(dataRef.current[lg], LISTS[lg], lg, TYPE_N);
+    if (!q.length) return;
+    tScore.current = { r: 0, n: 0 };
+    setTq(q); setTi(0); setTTyped(""); setTFb(null); setPhase("type");
+    flashType(q[0]);
+  };
+  const typeKey = (c) => {
+    if (tFb || tShow) return;                      /* nothing lands during the flash */
+    if (c === "del") { setTTyped((x) => x.slice(0, -1)); return; }
+    setTTyped((x) => (x.length >= 12 ? x : x + c));
+  };
+  const typeCommit = () => {
+    if (tFb || !tTyped) return;
+    const item = tq[ti];
+    const word = item.word;
+    const ans = tTyped;
+    const ok = ans.toLowerCase() === word.toLowerCase();
+    const lg = langRef.current;
+    const prev = dataRef.current;
+    const L = clone(prev[lg]);
+    const ws = L.words[word] ||
+      (L.words[word] = { s: 0, cc: 0, d: [], iv: 0, due: null, r: 0, wr: 0, tn: [0, 0, 0], h: [], everMastered: false });
+    /* `tp` only. s, cc, due, h and everMastered are untouched: he can read a
+       word long before he can spell it, and a spelling miss must not push a
+       word he reads fine back down the ladder or into review. */
+    const tp = ws.tp || (ws.tp = { r: 0, wr: 0 });
+    if (ok) { tp.r++; L.coins += 2; }
+    else { tp.wr++; tp.mx = tp.mx || {}; tp.mx[ans] = (tp.mx[ans] || 0) + 1; }
+    const tBonus = creditDay(L, span(tAt));
+    L.coins += tBonus;
+    const newData = { ...prev, [lg]: L };
+    dataRef.current = newData;
+    setData(newData);
+    scheduleSave(lg);
+    tScore.current = { r: tScore.current.r + (ok ? 1 : 0), n: tScore.current.n + 1 };
+    runAchCheck(newData);
+    if (sndRef.current) { ok ? (tBonus ? sfx.bonus() : sfx.ok()) : sfx.no(); }
+    setTFb({ ok, ans });
+    if (ok) setTimeout(typeNext, 1100);   /* a miss waits: the diff is the lesson */
+  };
+  const typeNext = () => {
+    if (ti + 1 >= tq.length) {
+      const { r, n } = tScore.current;
+      const lg = langRef.current;
+      achRef.current = setBook(achRef.current, lg, {
+        tRounds: (achRef.current[lg].tRounds || 0) + 1,
+        tPerfect: (achRef.current[lg].tPerfect || 0) + (n >= TYPE_N && r === n ? 1 : 0)
+      });
+      runAchCheck(dataRef.current);
+      setPhase("tdone"); return;
+    }
+    const k = ti + 1;
+    setTi(k); setTTyped(""); setTFb(null);
+    flashType(tq[k]);
+  };
+
   /* What happens after the feedback stage. Pulled out of the timer because a
      wrong answer no longer runs on a timer: the correct word stays up, tappable
      to hear again, until he taps continue. A miss is the one moment in the loop
@@ -2616,6 +2844,7 @@ export default function App() {
   useEffect(() => {
     if (phase === "play") spanAt.current = Date.now();
     else if (phase === "vowel") vAt.current = Date.now();
+    else if (phase === "type") tAt.current = Date.now();
     else if (phase === "letters") lAt.current = Date.now();
     else if (phase === "mix") mAt.current = Date.now();
   }, [phase]);
@@ -2799,6 +3028,9 @@ export default function App() {
   /* ----------------------------- home ----------------------------- */
   if (phase === "home") {
     const workPairs = letterPairsNeedingWork(L, lang);
+    /* a round needs a full queue, otherwise the tile promises a game that is
+       one item long */
+    const typeReady = typeCandidates(L, LISTS[lang]).length >= TYPE_N;
     return (
       <div className="bw" style={{ ...wrap, alignItems: "center", justifyContent: "center", gap: "clamp(14px,3vh,26px)", padding: 16, position: "relative" }}>
         <style>{css}</style>
@@ -2888,6 +3120,16 @@ export default function App() {
             borderRadius: "50%", fontSize: 30, fontWeight: 900, letterSpacing: TRACK,
             color: "#E28C1E", cursor: "pointer"
           }}>{workPairs[0].a} {workPairs[0].b}</button>
+        )}
+
+        {/* Tipp-Blitz. Labelled with a pencil, not a word: the tile has to say
+            "write" to someone who is still learning to read. Only appears once
+            there are enough words he has actually met. */}
+        {games.type && typeReady && (
+          <button onClick={startType} aria-label="Tipp-Blitz" data-type-tile className="bigbtn" style={{
+            ...cardSt, position: "absolute", bottom: 22, left: 158, width: 88, height: 88,
+            borderRadius: "50%", fontSize: 34, cursor: "pointer", color: C.green
+          }}>✏</button>
         )}
 
         {/* Tier-Blitz. Permanent, not remedial: unlike the b/d drill this is not
@@ -3106,6 +3348,106 @@ export default function App() {
               }}>{o}</button>
             );
           })}
+        </div>
+      </div>
+    );
+  }
+
+  /* --------------------------- Tipp-Blitz --------------------------- */
+  if (phase === "type" && tq[ti]) {
+    const item = tq[ti];
+    const word = item.word;
+    const showWord = tShow || !!tFb;
+    return (
+      <div className="bw" style={{ ...wrap, padding: "10px 14px 14px", gap: 12 }} data-type-screen>
+        <style>{css}</style>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <button onClick={goHome} className="bigbtn" style={{ ...cardSt, width: 58, height: 58, fontSize: 26, borderRadius: 18, cursor: "pointer" }}>🏠</button>
+          <div style={{ ...cardSt, padding: "8px 16px", fontSize: 21, fontWeight: 800, borderRadius: 18 }}>✏</div>
+          <div style={{ flex: 1, height: 10, background: "#D6E4F2", borderRadius: 6, overflow: "hidden", margin: "0 4px" }}>
+            <div style={{ width: `${Math.round((ti / tq.length) * 100)}%`, height: "100%", background: C.blue, borderRadius: 6, transition: "width .4s" }} />
+          </div>
+          <div style={{ ...cardSt, padding: "8px 16px", fontSize: 21, fontWeight: 800, borderRadius: 18, color: "#8A5A00", background: "#FFF3D6" }}>
+            🪙 {L.coins}
+          </div>
+        </div>
+
+        {/* The word lives here during the flash and again in the diff, and
+            nowhere at all in between. data-type-target is on the element only
+            while it is legitimately on screen, so a test can assert the gap. */}
+        <div style={{
+          ...cardSt, alignSelf: "center", width: "min(94vw,720px)",
+          height: "clamp(150px,26vh,210px)", display: "flex", alignItems: "center",
+          justifyContent: "center", flexDirection: "column", gap: 6
+        }}>
+          {showWord ? (
+            <span data-type-target style={{ fontSize: "clamp(44px,9vw,78px)", fontWeight: 800, letterSpacing: TRACK }}>
+              {tFb
+                ? word.split("").map((ch, i) => (
+                    <span key={i} style={{ color: (tFb.ans[i] || "").toLowerCase() === ch.toLowerCase() ? C.green : C.red }}>{ch}</span>
+                  ))
+                : word}
+            </span>
+          ) : (
+            <span data-type-input style={{
+              fontSize: "clamp(44px,9vw,78px)", fontWeight: 800, letterSpacing: TRACK,
+              color: tTyped ? C.ink : C.mask, minHeight: "1.1em"
+            }}>{tTyped || "▮"}</span>
+          )}
+          {tFb && !tFb.ok && (
+            <span style={{ fontSize: 22, fontWeight: 800, color: C.red, letterSpacing: TRACK, textDecoration: "line-through" }}>
+              {tFb.ans}
+            </span>
+          )}
+        </div>
+
+        {tFb ? (
+          <button onClick={typeNext} className="bigbtn" style={{
+            ...cardSt, alignSelf: "center", padding: "14px 44px", fontSize: 24, fontWeight: 800,
+            borderRadius: 20, background: C.green, color: "#fff", cursor: "pointer"
+          }}>{S.cont}</button>
+        ) : (
+          <div style={{ alignSelf: "center", display: "flex", flexDirection: "column", gap: 10, alignItems: "center" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(6,minmax(0,1fr))", gap: 8, width: "min(94vw,560px)" }}>
+              {item.keys.map((c) => (
+                <button key={c} data-type-key={c} disabled={tShow} onClick={() => typeKey(c)} className="bigbtn" style={{
+                  ...cardSt, height: 62, borderRadius: 16, fontSize: 28, fontWeight: 800,
+                  letterSpacing: TRACK, cursor: tShow ? "default" : "pointer", opacity: tShow ? .35 : 1
+                }}>{c}</button>
+              ))}
+            </div>
+            <div style={{ display: "flex", gap: 12 }}>
+              <button data-type-key="del" disabled={tShow} onClick={() => typeKey("del")} className="bigbtn" style={{
+                ...cardSt, width: 96, height: 58, borderRadius: 18, fontSize: 24, fontWeight: 800,
+                cursor: tShow ? "default" : "pointer", opacity: tShow ? .35 : 1
+              }}>⌫</button>
+              <button data-type-commit disabled={tShow || !tTyped} onClick={typeCommit} className="bigbtn" style={{
+                ...cardSt, width: 130, height: 58, borderRadius: 18, fontSize: 26, fontWeight: 800,
+                background: tTyped && !tShow ? C.green : "#F2F6FA", color: tTyped && !tShow ? "#fff" : "#9FB0C2",
+                cursor: tTyped && !tShow ? "pointer" : "default"
+              }}>✓</button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (phase === "tdone") {
+    const { r, n } = tScore.current;
+    return (
+      <div className="bw" style={{ ...wrap, alignItems: "center", justifyContent: "center", gap: 22, padding: 16 }}>
+        <style>{css}</style>
+        <div style={{ fontSize: 66 }}>{r === n ? "🏆" : r * 2 >= n ? "👏" : "💪"}</div>
+        <div style={{ fontSize: 40, fontWeight: 900 }}>{r} / {n}</div>
+        <div style={{ display: "flex", gap: 16 }}>
+          <button onClick={startType} className="bigbtn" style={{
+            ...cardSt, width: 104, height: 104, borderRadius: "50%", background: C.blue,
+            color: "#fff", fontSize: 40, cursor: "pointer"
+          }}>↻</button>
+          <button onClick={goHome} className="bigbtn" style={{
+            ...cardSt, width: 104, height: 104, borderRadius: "50%", fontSize: 40, cursor: "pointer"
+          }}>🏠</button>
         </div>
       </div>
     );
@@ -3469,6 +3811,7 @@ export default function App() {
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {[
+              { k: "type", icon: "✏", name: "Tipp-Blitz", note: "Wort kurz zeigen, dann selbst schreiben." },
               { k: "vowel", icon: "a e i", name: "Vokal-Blitz", note: "Welcher Vokal steckt im gehörten Wort?" },
               { k: "letters", icon: "b d", name: "Buchstaben-Blitz", note: workPairsDash.length ? `aktuelles Paar: ${workPairsDash[0].a} ${workPairsDash[0].b} (${workPairsDash[0].count}×)` : "gerade kein Paar über der Schwelle — der Knopf bleibt dann aus" },
               { k: "mix", icon: "🐘", name: "Tier-Blitz", note: "Silbe für Silbe ein Fantasietier bauen" }

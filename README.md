@@ -72,6 +72,17 @@ Then commit `index.html` (and anything else changed). Pages redeploys automatica
   this file goes red again, check the record count separately from the
   anti-guessing assertions — those are not timing-dependent and a failure there is
   real. Do not loosen a threshold to make it quiet.
+- **A new badge category needs exactly 10 badges.** `test_minigame_awards`
+  asserts the header total equals ten times the number of category tallies.
+  Tipp-Blitz shipped with 8 and broke it; the fix is two more badges, not a
+  looser assertion.
+- **A new badge category also needs a `CAT_NAMES` entry.** Without one the
+  trophy gallery throws while rendering and the whole screen goes blank.
+  `test_achievements_e2e` catches it.
+- **`tools/sim_type.mjs`** plays the built game with strategies a child could
+  actually use and reports the hit rate of each. Run it after any change to the
+  Tipp-Blitz board or queue: green tests said the 12-key board was fine, and the
+  simulation showed vowel-guessing scoring 38%.
 - **The Contents API can lag a push by ~30 s.** Straight after this commit it
   served the *pre-push* `src/App.jsx` while `index.html` from the same tree was
   already current — a verify step that trusts it reads a half-updated repo that
