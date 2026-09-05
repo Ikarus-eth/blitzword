@@ -543,7 +543,28 @@ Exposure has a **1500 ms floor** whatever the speed slider says. The reading loo
 at speed 9 is a 250 ms recognition flash; this asks him to hold the word and
 rebuild it, and at that exposure it would be testing memory instead of spelling.
 
-### The keyboard is the whole design, and the first version was wrong
+### The keyboard is the whole alphabet
+
+QWERTY for English, QWERTZ with ä ö ü ß for German — what "standard keyboard"
+means, and what he will meet on a real one.
+
+It was a 14-key board first: the word's letters plus the letters he had actually
+written in their place. That was built to keep the search cost down, and it did,
+but it bought that with a scaffold. Fourteen keys rule out twelve letters before
+he starts, and **the set of keys is itself a clue about the word**. A full
+alphabet is identical for every item, so it leaks nothing at all, and every
+letter he could reach for is present — which means every mistake he can make is
+one he can express. The 14-key board had to be engineered to achieve that; the
+full one gets it for free. `test_type_blitz` asserts the key set does not change
+between words.
+
+The cost is real: ten keys to a row instead of a 6×3 grid of big ones, and more
+hunting for a seven-year-old. If rounds start dragging, that is the thing to look
+at first.
+
+### What the 14-key board taught, kept here because it will come back
+
+
 
 Not the word's own letters: measured, **91%** of the wrong spellings he actually
 produces use a letter that is not in the target, so that board could not produce
@@ -606,6 +627,37 @@ the 4 Sep export. Per word: came 32%, come 34%, ride 24%, went 22%, want 20%,
 his 18%, can 17%, down 16%, find 12%, make 10%, made 7%, with 5%. If Tipp-Blitz
 works, that figure falls in the *recognition* game. If it does not move, the game
 is entertainment and should be cut.
+
+## The daily goal is a property of the day, not a constant
+
+`DAY_GOAL` went 600 → 660 on 5 Sep 2026. Raising the constant alone would have
+been silently destructive, and nothing in the test suite would have caught it
+before the app did.
+
+**His whole English run sits between 601 and 659 seconds.** Seventeen days for
+seventeen, every one of them under 660 — he practises to the target and stops
+within seconds of it, which is the same evidence that says the goal *is* the
+session length and that moving it will move his practice. Because the streak is
+derived rather than stored, a global 660 makes `dayDone` false for all sixteen
+days at once and the flame recomputes from 16 to 0 the next time he opens the
+app. The property that has protected this app twice — derived state cannot go
+stale — is the exact property that makes a moved goalpost retroactive.
+
+So `creditDay` stamps `g` onto a day when it first creates it, and `dayDone`,
+`dayPct` and the ring all read the goal off the day. Days written before the
+change carry no `g` and keep `LEGACY_GOAL`. Today's record, if it already
+exists, also keeps it: the goalposts do not move halfway through a session he
+has already started. The v2→v3 repair is pinned to `LEGACY_GOAL` too — it is
+about history and must not be re-judged by a later standard.
+
+`dayPct` and `dayDone` now take the day record rather than seconds. That is
+deliberate: with a per-day goal, seconds alone are no longer enough to answer
+either question, and a signature that still accepted them would let a call site
+silently use the wrong goal.
+
+`test_day_goal` covers the equivalence sweep at both goals and asserts that
+sixteen days of 601–659 s survive the rise. Against a build with one global
+constant that assertion fails, along with three others.
 
 ### Active time is the span between answers, capped
 

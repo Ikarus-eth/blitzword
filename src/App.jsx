@@ -215,9 +215,24 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
    `Math.floor` makes `dayPct(sec) === 100` exactly equivalent to
    `dayDone(sec)`, so display and credit cannot drift apart again. Every site
    that shows a percentage or decides a day goes through these two. */
-const DAY_GOAL = 600;
-const dayPct = (sec) => Math.min(100, Math.floor(((sec || 0) / DAY_GOAL) * 100));
-const dayDone = (sec) => (sec || 0) >= DAY_GOAL;
+/* The goal is stamped onto each day when the day is first created, and every
+   check reads it off the day rather than off this constant. That is not
+   tidiness — raising the constant alone would have been silently destructive.
+   His whole English run sits between 601 and 659 seconds: seventeen days for
+   seventeen, and every single one of them under 660. A global 660 makes
+   `dayDone` false for all of them at once, and because the streak is derived
+   rather than stored it would have recomputed from 16 to 0 the next time he
+   opened the app. A day is measured against the goal that was in force when he
+   practised it, so history is fixed and only tomorrow moves.
+
+   Days written before this change carry no `g` and keep LEGACY_GOAL. Today's
+   record, if it already exists, also keeps it — the goalposts do not move
+   halfway through a session he has already started. */
+const DAY_GOAL = 660;          // 11 minutes
+const LEGACY_GOAL = 600;       // what every day up to 5 Sep 2026 was measured against
+const goalOf = (d) => (d && d.g) || LEGACY_GOAL;
+const dayPct = (d) => Math.min(100, Math.floor((((d && d.s) || 0) / goalOf(d)) * 100));
+const dayDone = (d) => (((d && d.s) || 0) >= goalOf(d));
 
 /* ---- Joker: one excused day, and only where it can bridge -------------------
    A missed day never destroyed anything, because the streak is not stored:
@@ -314,7 +329,7 @@ const migrate = (L) => {
   if (wasV < 3) {
     Object.keys(L.days).forEach((k) => {
       const d = L.days[k];
-      if (d && typeof d.s === "number" && d.s < DAY_GOAL && Math.round(d.s / 6) >= 100) d.s = DAY_GOAL;
+      if (d && typeof d.s === "number" && d.s < LEGACY_GOAL && Math.round(d.s / 6) >= 100) d.s = LEGACY_GOAL;
     });
   }
   if (typeof L.coins !== "number") L.coins = 0;
@@ -1043,7 +1058,7 @@ const span = (ref) => {
    them for good. The same minute must be worth the same wherever it was spent.
    Returns the milestone coins this answer earned. */
 function creditDay(L, sec) {
-  const day = L.days[tISO()] || (L.days[tISO()] = { s: 0, b1: 0, b2: 0 });
+  const day = L.days[tISO()] || (L.days[tISO()] = { s: 0, b1: 0, b2: 0, g: DAY_GOAL });
   day.s += sec;
   let bonus = 0;
   if (day.s >= 900 && !day.b1) { day.b1 = 1; bonus += 10; }
@@ -1069,15 +1084,15 @@ function creditDay(L, sec) {
    argument is therefore not optional in practice — a call site that drops it
    shows a different number from the one beside it, which is the same split
    between the ⏱ ring and the streak that cost a five-day streak once already. */
-const dayBridges = (days, J, k) => dayDone((days[k] || {}).s) || J.has(k);
+const dayBridges = (days, J, k) => dayDone(days[k]) || J.has(k);
 function calcStreak(days, jok) {
   const J = jokSet(jok);
   let n = 0;
   const d = new Date();
-  if (dayDone((days[tISO(d)] || {}).s)) n++;
+  if (dayDone(days[tISO(d)])) n++;
   d.setDate(d.getDate() - 1);
   while (dayBridges(days, J, tISO(d))) {
-    if (dayDone((days[tISO(d)] || {}).s)) n++;   // excused days bridge, they do not count
+    if (dayDone(days[tISO(d)])) n++;             // excused days bridge, they do not count
     d.setDate(d.getDate() - 1);
   }
   return n;
@@ -1091,11 +1106,11 @@ function jokerRows(days, jok) {
   const out = [];
   for (let i = 1; i <= JOKER_REACH; i++) {
     const k = isoShift(tISO(), -i);
-    if (dayDone((days[k] || {}).s)) continue;            // nothing to excuse
+    if (dayDone(days[k])) continue;                      // nothing to excuse
     const on = list.includes(k);
     let why = null;
     if (!on) {
-      if (!dayDone((days[isoShift(k, -1)] || {}).s)) why = "nostreak";
+      if (!dayDone(days[isoShift(k, -1)])) why = "nostreak";
       else if (list.some((j) => j !== k && Math.abs(dayDiff(j, k)) < JOKER_GAP)) why = "spent";
     }
     out.push({ iso: k, on, can: on || !why, why, sec: (days[k] || {}).s || 0 });
@@ -1241,64 +1256,40 @@ const GAME_KEYS = ["vowel", "letters", "mix", "type"];
    on his export: 91% of the wrong spellings he actually produces use a letter
    that is not in the target word, so a board built from the word's letters
    could not produce a single one of them and therefore could not correct them.
-   All 26 would put the search cost above the spelling cost for a seven-year-old.
-   So the board is the word's letters plus the letters he has actually put in
-   their place, padded from the pairs he confuses across the whole book. On the
-   twelve weakest words that reaches 100% of his recorded misspellings. */
+   That is why the keyboard below is the whole alphabet: every letter he could
+   reach for is there, so every mistake he can make is one he can express. */
 const TYPE_N = 8;              // items per round; typing is slow, a round stays ~ a vowel round
-const KB_SIZE = 14;
-const KB_FILL = "aeioutnsrdlmhwbcgfpvky";
 const TYPE_MIN_SEEN = 8;       // he has to have met the word before being asked to write it
 /* Never faster than 1.5 s: at speed 9 the reading loop is a recognition flash,
    but this asks him to hold the word and rebuild it, and a 250 ms exposure
    would be testing memory rather than spelling. */
 const typeExposure = (speed) => Math.max(1500, DUR[Math.max(0, speed - 2)]);
+/* A full keyboard, the same one for every word.
 
-/* The letters he has actually written in place of others, across the whole
-   book, commonest first. Derived rather than hard-coded so the board follows
-   his errors as they change instead of a table I fixed once. */
-function nearPairs(L) {
-  const cnt = {};
-  Object.entries(L.words || {}).forEach(([w, ws]) => {
-    const all = { ...((ws && ws.mx) || {}), ...(((ws && ws.tp) || {}).mx || {}) };
-    Object.entries(all).forEach(([g, k]) => {
-      if (g.length !== w.length) return;
-      const d = [];
-      for (let i = 0; i < w.length; i++) if (w[i].toLowerCase() !== g[i].toLowerCase()) d.push(i);
-      if (d.length !== 1) return;
-      const key = w[d[0]].toLowerCase() + g[d[0]].toLowerCase();
-      cnt[key] = (cnt[key] || 0) + k;
-    });
-  });
-  return Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a]).map((k) => [k[0], k[1]]);
-}
-/* Every board carries all five vowels, and that is not decoration.
-   Simulated against the build: a player who remembers every consonant and the
-   length and simply guesses the vowel off the board scored 38%, against 56%
-   for a model of his real ability. Two thirds of the achievable score for
-   skipping the exact step the game exists to train — 42% of his wrong answers
-   are one vowel put in place of another. Boards were coming out with four
-   vowels or fewer, so the guess was one in four. With all five present a
-   one-vowel word is one in five and a two-vowel word one in twenty-five, and
-   the strategy stops paying. Language extras (ä ö ü, y) come in only when the
-   word or one of his misspellings of it actually uses them, so a German board
-   does not spend eight of fourteen keys on vowels. */
-const BASE_VOWELS = "aeiou";
-function typeBoard(word, ws, pairs, lang) {
-  const ks = [];
-  const add = (ch) => { if (ch && !ks.includes(ch) && ks.length < KB_SIZE) ks.push(ch); };
-  const lw = word.toLowerCase();
-  for (const ch of lw) add(ch);
-  for (const ch of BASE_VOWELS) add(ch);
-  const own0 = { ...((ws && ws.mx) || {}), ...(((ws && ws.tp) || {}).mx || {}) };
-  const extra = (VOWELS[lang] || "aeiou").split("").filter((v) => !BASE_VOWELS.includes(v));
-  extra.forEach((v) => { if (lw.includes(v) || Object.keys(own0).some((g) => g.toLowerCase().includes(v))) add(v); });
-  const own = { ...((ws && ws.mx) || {}), ...(((ws && ws.tp) || {}).mx || {}) };
-  Object.keys(own).sort((a, b) => own[b] - own[a]).forEach((g) => { for (const ch of g.toLowerCase()) add(ch); });
-  pairs.forEach(([a, b]) => { if (lw.includes(a)) add(b); });
-  for (const ch of KB_FILL) add(ch);
-  return ks.sort();
-}
+   It was a 14-key board first: the word's letters plus the letters he has
+   actually written in their place, padded from the pairs he confuses. That was
+   built to keep the search cost down for a seven-year-old, and it did, but it
+   bought that with a scaffold — fourteen keys rule out twelve letters before he
+   starts, and the set of keys is itself a clue about the word. A full alphabet
+   is identical for every item and therefore leaks nothing at all, which is the
+   stronger property and the one worth having. It also makes the earlier
+   measurement moot: every letter he could possibly want is present, so every
+   misspelling he can make is expressible, which is what the 14-key board had to
+   be engineered to achieve.
+
+   Layout follows the language, because that is what "standard keyboard" means
+   and it is what he will meet on a real one: QWERTZ with ä ö ü ß for German,
+   QWERTY for English. */
+const KB_LAYOUT = {
+  en: [["q","w","e","r","t","y","u","i","o","p"],
+       ["a","s","d","f","g","h","j","k","l"],
+       ["z","x","c","v","b","n","m"]],
+  de: [["q","w","e","r","t","z","u","i","o","p","ü"],
+       ["a","s","d","f","g","h","j","k","l","ö","ä"],
+       ["y","x","c","v","b","n","m","ß"]]
+};
+const kbRows = (lang) => KB_LAYOUT[lang] || KB_LAYOUT.en;
+
 /* Words he has met at least TYPE_MIN_SEEN times, 3 to 5 letters, weighted by
    how often he has actually got them wrong. Deliberately not gated on
    everMastered: the five worst words in his book (went, ride, came, find,
@@ -1322,7 +1313,6 @@ function typeCandidates(L, list) {
 }
 function buildTypeQueue(L, list, lang, n) {
   const bag = typeCandidates(L, list);
-  const pairs = nearPairs(L);
   const out = [];
   while (bag.length && out.length < n) {
     let total = 0; for (const x of bag) total += x.w;
@@ -1330,7 +1320,7 @@ function buildTypeQueue(L, list, lang, n) {
     while (k < bag.length - 1 && (r -= bag[k].w) > 0) k++;
     const word = bag[k].word;
     bag.splice(k, 1);
-    out.push({ word, keys: typeBoard(word, L.words[word], pairs, lang) });
+    out.push({ word });
   }
   return out;
 }
@@ -2115,11 +2105,11 @@ function Ring({ frac, size = 48, stroke = 5, color = C.gold, children }) {
     </div>
   );
 }
-function DayRing({ sec, size = 48 }) {
-  const pct = dayPct(sec);
-  const done = dayDone(sec);
+function DayRing({ day, size = 48 }) {
+  const pct = dayPct(day);
+  const done = dayDone(day);
   return (
-    <Ring frac={sec / DAY_GOAL} size={size} color={done ? C.green : C.gold}>
+    <Ring frac={((day && day.s) || 0) / goalOf(day)} size={size} color={done ? C.green : C.gold}>
       {done
         ? <span style={{ fontSize: size * 0.42 }}>🔥</span>
         : <span style={{ fontSize: size * 0.3, fontWeight: 900 }}>{pct}%</span>}
@@ -3013,7 +3003,8 @@ export default function App() {
   };
   const S = STR[lang];
   const L = data ? data[lang] : null;
-  const todaySec = L ? ((L.days[tISO()] || {}).s || 0) : 0;
+  const todayRec = L ? L.days[tISO()] : null;
+  const todaySec = (todayRec && todayRec.s) || 0;
 
   /* ============================ render ============================ */
   if (phase === "load") {
@@ -3056,8 +3047,7 @@ export default function App() {
             const ld = data[l], sel = l === lang;
             const star = starLevel(ld, LISTS[l]);
             const stk = calcStreak(ld.days, jok);
-            const sec = (ld.days[tISO()] || {}).s || 0;
-            const pct = dayPct(sec);
+            const pct = dayPct(ld.days[tISO()]);
             const S2 = STR[l];
             return (
               <button key={l} onClick={() => setLang(l)} className="bigbtn" style={{
@@ -3408,12 +3398,17 @@ export default function App() {
           }}>{S.cont}</button>
         ) : (
           <div style={{ alignSelf: "center", display: "flex", flexDirection: "column", gap: 10, alignItems: "center" }}>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(6,minmax(0,1fr))", gap: 8, width: "min(94vw,560px)" }}>
-              {item.keys.map((c) => (
-                <button key={c} data-type-key={c} disabled={tShow} onClick={() => typeKey(c)} className="bigbtn" style={{
-                  ...cardSt, height: 62, borderRadius: 16, fontSize: 28, fontWeight: 800,
-                  letterSpacing: TRACK, cursor: tShow ? "default" : "pointer", opacity: tShow ? .35 : 1
-                }}>{c}</button>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, width: "min(98vw,720px)" }}>
+              {kbRows(lang).map((row, ri) => (
+                <div key={ri} style={{ display: "flex", gap: 5, justifyContent: "center" }}>
+                  {row.map((c) => (
+                    <button key={c} data-type-key={c} disabled={tShow} onClick={() => typeKey(c)} className="bigbtn" style={{
+                      ...cardSt, flex: "1 1 0", minWidth: 0, maxWidth: 62, height: 56, borderRadius: 10,
+                      fontSize: "clamp(17px,3.6vw,25px)", fontWeight: 800, padding: 0,
+                      cursor: tShow ? "default" : "pointer", opacity: tShow ? .35 : 1
+                    }}>{c}</button>
+                  ))}
+                </div>
               ))}
             </div>
             <div style={{ display: "flex", gap: 12 }}>
@@ -4408,7 +4403,7 @@ export default function App() {
           <div style={{ ...cardSt, padding: "10px 20px", fontSize: 22, fontWeight: 800, borderRadius: 18, color: "#8A5A00", background: "#FFF3D6" }}>
             +{ch.coins} 🪙
           </div>
-          <DayRing sec={todaySec} size={60} />
+          <DayRing day={todayRec} size={60} />
         </div>
         {dir !== 0 && !nudged && (
           <button onClick={() => { setSpeed(speed + dir); setNudged(true); }} className="bigbtn" style={{
@@ -4486,7 +4481,7 @@ export default function App() {
           🪙 {L.coins}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <DayRing sec={todaySec} />
+          <DayRing day={todayRec} />
           <span data-streak-play="1" data-streak={streak} style={{ fontSize: 21, fontWeight: 800 }}>🔥{streak}</span>
         </div>
       </div>

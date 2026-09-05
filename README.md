@@ -72,6 +72,11 @@ Then commit `index.html` (and anything else changed). Pages redeploys automatica
   this file goes red again, check the record count separately from the
   anti-guessing assertions — those are not timing-dependent and a failure there is
   real. Do not loosen a threshold to make it quiet.
+- **Never raise `DAY_GOAL` as a global constant.** The streak is derived, so a
+  higher goal is judged against days already practised and wipes them. Every day
+  in the 4 Sep export was between 601 and 659 s; a global 660 would have taken a
+  16-day streak to 0. The goal is stamped on each day at `creditDay` and read
+  back with `goalOf`. `dayPct`/`dayDone` take the day record, not seconds.
 - **A new badge category needs exactly 10 badges.** `test_minigame_awards`
   asserts the header total equals ten times the number of category tallies.
   Tipp-Blitz shipped with 8 and broke it; the fix is two more badges, not a

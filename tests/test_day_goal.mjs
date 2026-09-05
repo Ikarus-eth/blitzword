@@ -93,6 +93,39 @@ check("ring shows 100% exactly when the day counts",
 check("598.076 s does not read as a finished day", (rows.find((r) => r.s === 598.076) || {}).pct === 99);
 check("600 s does read as a finished day", (rows.find((r) => r.s === 600) || {}).pct === 100);
 
+// --- 1b. the goal moved to 660 and history has to survive it -----------------
+// Raising the constant alone would have been silently destructive. His whole
+// English run sits between 601 and 659 seconds — seventeen days for seventeen,
+// every one of them under 660 — and because the streak is derived rather than
+// stored it would have recomputed from 16 to 0 the next time he opened the app.
+// A day is measured against the goal that was in force when he practised it.
+const oldDays = {};
+for (let i = 1; i <= 16; i++) oldDays[iso(-i)] = { s: 601 + (i % 50), b1: 0, b2: 0 };
+const legacy = await boot({ ...oldDays, [iso()]: { s: 0, b1: 0, b2: 0 } }, 3);
+const legacyCard = readCard(legacy.body());
+check("sixteen days between 601 and 659 s still count after the goal rose to 660",
+  legacyCard.streak === 16);
+legacy.window.close();
+
+// and a day stamped with the new goal is measured against the new goal
+const SWEEP2 = [640, 659.9, 660, 700];
+const rows2 = [];
+for (const s of SWEEP2) {
+  const h = await boot({ [iso(-1)]: { s: 800, b1: 0, b2: 0, g: 660 },
+                         [iso()]: { s, b1: 0, b2: 0, g: 660 } }, 3);
+  rows2.push({ s, ...readCard(h.body()), errs: h.errs.length });
+  h.window.close();
+}
+console.log("  sec      ring%   streak   (goal 660)");
+for (const r of rows2) console.log(`  ${String(r.s).padEnd(8)} ${String(r.pct).padStart(4)}%   ${r.streak}`);
+check("at goal 660 the ring still reads 100% exactly when the day counts",
+  rows2.every((r) => (r.pct === 100) === (r.streak === 2)));
+check("659.9 s is not a finished 11-minute day", (rows2.find((r) => r.s === 659.9) || {}).pct === 99);
+check("660 s is", (rows2.find((r) => r.s === 660) || {}).pct === 100);
+check("640 s would have finished a 10-minute day but does not finish an 11-minute one",
+  (rows2.find((r) => r.s === 640) || {}).streak === 1);
+check("no uncaught errors at the new goal", rows2.every((r) => r.errs === 0));
+
 // --- 2. the v3 repair pays out the lost days --------------------------------
 // The shape of the real export: four clear days, then 598.076 s, then today.
 // Correct answer is a six-day streak; the unrepaired save gives one.

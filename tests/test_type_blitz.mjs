@@ -141,16 +141,16 @@ check("no empty slots give the length away",
 
 /* ---- the keyboard carries the letters he actually writes ---- */
 const ks = a.keys();
-check("the board is 14 keys", ks.length === 14, String(ks.length));
-// simulated at 38% for a player who knows every consonant and guesses the
-// vowel off the board — two thirds of what real spelling scores. All five
-// vowels present takes a one-vowel word from one-in-four to one-in-five and a
-// two-vowel word to one-in-twenty-five. tools/sim_type.mjs has the numbers.
-check("every vowel is on the board, so guessing the vowel does not pay",
-  ["a", "e", "i", "o", "u"].every((v) => ks.includes(v)), ks.join(""));
+check("the keyboard is the whole alphabet", ks.length === 26, String(ks.length));
+check("in QWERTY order, not alphabetical", ks.slice(0, 3).join("") === "qwe", ks.slice(0, 6).join(""));
+// the 14-key board was measured at 38% for a player who knows every consonant
+// and guesses the vowel; five forced vowels took that to 9%. A full alphabet
+// removes the question — nothing about the key set depends on the word, so it
+// cannot leak, and every letter he might reach for is present.
+check("every vowel is there", ["a", "e", "i", "o", "u"].every((v) => ks.includes(v)), ks.join(""));
 const inWord = new Set(shown.split(""));
 check("it is not just the word's own letters",
-  ks.some((k) => !inWord.has(k)), ks.join(""));
+  ks.filter((k) => !inWord.has(k)).length >= 20, ks.join(""));
 const before = a.rec(shown);
 const wrongOnes = Object.keys(before.mx || {});
 const reachable = wrongOnes.filter((g) => [...g].every((c) => ks.includes(c)));
@@ -194,7 +194,8 @@ a.tap(contBtn());
 await sleep(1700);
 const w2 = a.q("[data-type-screen]") ? null : null;
 const ks2 = a.keys();
-check("next item drew a fresh board", ks2.length === 14, String(ks2.length));
+check("the keyboard does not change between words — it cannot leak the letters",
+  ks2.join("") === ks.join(""), ks2.join(""));
 check("and its word is hidden too", a.target() === null);
 a.window.close();
 
