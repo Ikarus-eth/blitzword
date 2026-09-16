@@ -443,6 +443,15 @@ refused to keep.
 `test_day_goal` sweeps day totals across the boundary and asserts the two
 agree at every point; it fails on the old build at 598.076 s.
 
+**The 14-day chart is a third display of the same test** and it drifted the
+same way. It coloured a bar green at `min >= 10`, a literal 600 s, and kept
+doing so after the goal became a property of the day: from 5 Sep a 10:30 day
+showed green in the dashboard while the ring read 95% and the streak did not
+count it. The chart now takes `done` from `dayDone` on the day record, and its
+tooltip prints m:ss instead of rounded minutes, since "11 min" for 630 s is the
+rounded-display promise again. `test_day_chart_goal` fails on the old build at
+exactly that day. Any new place that shows "was this day done" reads `dayDone`.
+
 **The v3 migration pays out the days already lost to this.** It runs once over
 `L.days` and credits exactly the days the *old* display rounded up to 100% —
 `s < 600 && Math.round(s / 6) >= 100` — leaving every genuinely short day

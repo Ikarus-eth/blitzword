@@ -1424,12 +1424,18 @@ function weakestWords(L, n = 8) {
     .sort((a, b) => a.acc - b.acc)
     .slice(0, n);
 }
+/* `done` is read off the day record with dayDone, never re-derived from the
+   minutes. The chart used to colour a bar at `min >= 10`, a literal 600 s, and
+   kept doing so after the goal became 660 s per day: a 10:30 day showed green
+   here while the ring read 95% and the streak did not count it. Same split as
+   the ring and the flame once disagreeing; test_day_chart_goal pins it. */
 function dailyMinutes(L, n = 14) {
   const out = [], base = new Date();
   for (let i = n - 1; i >= 0; i--) {
     const d = new Date(base); d.setDate(base.getDate() - i);
     const iso = tISO(d);
-    out.push({ date: iso, min: ((L.days[iso] || {}).s || 0) / 60 });
+    const rec = L.days[iso];
+    out.push({ date: iso, min: ((rec || {}).s || 0) / 60, done: dayDone(rec) });
   }
   return out;
 }
@@ -4202,13 +4208,13 @@ export default function App() {
           <div style={{ fontWeight: 800, marginBottom: 8, fontSize: 15 }}>Übungszeit (14 Tage)</div>
           <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: 64 }}>
             {days14.map((d, i) => (
-              <div key={i} title={`${d.date}: ${Math.round(d.min)} min`} style={{
+              <div key={i} title={`${d.date}: ${Math.floor(d.min)}:${String(Math.floor((d.min % 1) * 60)).padStart(2, "0")} min`} style={{
                 width: 15, height: Math.max(3, Math.min(64, (d.min / 15) * 64)),
-                background: d.min >= 10 ? C.green : d.min > 0 ? C.gold : "#E4ECF3", borderRadius: 3
+                background: d.done ? C.green : d.min > 0 ? C.gold : "#E4ECF3", borderRadius: 3
               }} />
             ))}
           </div>
-          <div style={{ fontSize: 12, color: "#8CA0B5", marginTop: 6 }}>Grün = Tages-Ziel (10 min) erreicht.</div>
+          <div style={{ fontSize: 12, color: "#8CA0B5", marginTop: 6 }}>Grün = Tagesziel dieses Tages erreicht (bis 4.9. 10 min, seit 5.9. 11 min).</div>
         </div>
 
         <div style={{ ...cardSt, padding: 14 }}>

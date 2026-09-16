@@ -33,6 +33,10 @@ specific way.
 ```
 Then commit `index.html` (and anything else changed). Pages redeploys automatically.
 
+The suite takes ~9 minutes. Where a single command is limited to 300 s (the
+Claude sandbox), run `tools/run_batched.sh /tmp/suite.log` repeatedly until it
+prints `DONE` — same files, same pass rule, resumable.
+
 ## Things learned the hard way — don't undo these
 
 - **`index.html` is generated.** Editing it directly is lost on the next build.
@@ -95,6 +99,11 @@ Then commit `index.html` (and anything else changed). Pages redeploys automatica
   the commit's tree (`/git/trees/<head>?recursive=1` then `/git/blobs/<sha>`):
   it is content-addressed and cannot be stale. Re-check Contents after, not
   instead.
+- **A background test run in the sandbox dies silently at 300 s.** `nohup` and
+  `setsid` do not protect it; twice the log simply stopped growing in the middle
+  of `test_animal_mix`, which looks exactly like a hang in the test. Use
+  `tools/run_batched.sh`. It also pins `TZ`: several tests key "today" by
+  date, and a run crossing local midnight fails for no reason.
 - **`meta` has three write sites** — the export object, the debounced save and
   `flush()`. A field added to one and not the others survives until a device move
   and then vanishes. That is how the badge case was wiped once.
