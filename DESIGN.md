@@ -104,6 +104,54 @@ re-queued 3–6 items later in the same session and scheduled for tomorrow.
 Due reviews are **interleaved 1 : 2 with new words**, not front-loaded. Front-loading
 was tried and made every session open with a wall of previous failures.
 
+## How many words may be unfinished at once — the open-set cap
+
+On the 18 Sep 2026 export he was carrying 21 unfinished English words at the
+same time and getting 66% of his answers right. Ten words accounted for 30% of
+every answer he had ever given, at 37–56% correct each, with four tiles on
+screen. That is the shape of a grind, and it is what he was quitting the moment
+the ring filled.
+
+`OPEN_CAP = 8`: at most eight unfinished words are in play, chosen by recent
+accuracy, nearest to finishing first, plus one parked word on every queue build
+— the one he has gone longest without, so a hard word is deferred rather than
+dropped. Reviews of finished words are never held back.
+
+**Simulated against that export before building it** (his real per-word state,
+accuracy and due dates; outcomes drawn from each word's own measured accuracy;
+no learning in the model, so every difference is scheduling, 300 runs):
+
+| arm | words finished in 14 d | accuracy | distinct words/day |
+|---|---|---|---|
+| today, no cap | 12.0 | 57.4% | 28.9 |
+| cap 8, nearest done | 13.1 | 63.4% | 17.2 |
+| cap 8 + parked slot | 13.2 | 62.0% | 19.9 |
+| cap 8, weakest first | 0.9 | 49.0% | 15.5 |
+| cap 8, random rotation | 11.3 | 57.6% | 22.4 |
+
+Three things in that table decided the design, and two of them contradicted the
+reasoning that led to it:
+
+- **Capping the pool alone does nothing.** The first version capped `pool`, and
+  every arm came out identical to no cap at all. The diagnosis is in the queue:
+  of the ~16 words in a typical build, ~14 arrive through `due` and only ~4
+  through `pool`, because every miss sets `due` to tomorrow. The cap has to
+  apply to unfinished words wherever they come from.
+- **Serving the weakest first is the worst thing available.** It finishes
+  almost nothing: a word he gets right a third of the time cannot pass the
+  mastery gate however often it is shown, and while it is shown, nothing else
+  is. The pool weighting still leans that way *within* the served set, which is
+  fine; the selection of what is in play must not.
+- **The cap does not add throughput, it moves it forward.** Over 42 simulated
+  days the arms converge (16.5–16.7 finished). What it buys is a higher hit
+  rate — 57% to 62% — and finishes arriving sooner. That is the point: the
+  complaint was that he does not enjoy it, not that the curriculum is too slow.
+
+The parked slot costs about 1.4 points of accuracy against a pure cap and is
+kept anyway: a word vanishing for weeks is how "went" would stop being practised
+at all. `test_open_cap` pins all of it, and fails on the build before, on a
+weakest-first ranking, and with the parked slot removed.
+
 ## Two separate level gates — deliberate
 
 - **Reach level** (which words enter practice): unlocks at **≥70%** of the previous

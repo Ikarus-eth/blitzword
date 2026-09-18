@@ -104,6 +104,10 @@ prints `DONE` — same files, same pass rule, resumable.
   of `test_animal_mix`, which looks exactly like a hang in the test. Use
   `tools/run_batched.sh`. It also pins `TZ`: several tests key "today" by
   date, and a run crossing local midnight fails for no reason.
+- **`buildQueue` caps the open set at `OPEN_CAP` unfinished words** plus one
+  parked word. A test that expects to meet every unfinished word has to stay
+  under the cap, or read only the first queue build — the parked slot rotates
+  on every rebuild, by design.
 - **`mx` is lifetime-only.** Any question of the form "is this getting better"
   has to come from `L.ers`, the dated error log (60 days, reading only, turbo
   excluded), not from the lifetime confusion tallies, which can only grow.

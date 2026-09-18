@@ -176,6 +176,8 @@ const LISTS = { de: DE, en: EN };
 const DUR = [7500, 5000, 3500, 2500, 1500, 850, 700, 500, 350, 250];
 const SPEED_ICONS = ["🐢","🚶","🚲","🛴","🏃","🐎","🚗","🏎️","✈️","🚀"];
 const IVL = [3, 7, 14, 30];
+/* How many unfinished words may be in play at once. See buildQueue. */
+const OPEN_CAP = 8;
 const TIER = ["🐢", "🏃", "🚀"];
 const CHUNK_SEC = 150;   // active seconds per chunk (~2.5 min)
 const CHUNK_Q = 50;      // hard cap on questions per chunk
@@ -527,12 +529,44 @@ function reachBlock(L, list) {
 function buildQueue(L, list) {
   const today = tISO();
   const reach = reachLevel(L, list);
-  const due = [], pool = [];
+  let due = [], pool = [];
   list.forEach((lvl, li) => lvl.forEach((entry) => {
     const ws = L.words[entry[0]];
     if (ws && ws.due && ws.due <= today) due.push(entry);
     else if (li < reach && (!ws || ws.s < 2)) pool.push(entry);
   }));
+  /* ---- the open set is capped (see DESIGN "Wie viele Wörter gleichzeitig") ----
+     On the 18 Sep export he was carrying 21 unfinished words at once and getting
+     two answers in three right. Simulated against that state, capping how many
+     unfinished words are in play at a time and serving the ones nearest to
+     finishing first raises the hit rate from 57% to 62% and pulls forward the
+     words that do finish; capping the *pool* alone did nothing at all, because
+     14 of the 16 words in a typical queue arrive through `due`, not the pool.
+     Serving the weakest first — which the pool weighting below leans towards —
+     was by far the worst arm: almost nothing finishes, because a word he gets
+     right a third of the time cannot pass the mastery gate however often it is
+     shown. One parked word rides along on every build, the one he has gone
+     longest without, so a hard word is deferred and never dropped. */
+  const openOf = (e) => { const ws = L.words[e[0]]; return !ws || ws.s < 2; };
+  const openAll = [...due.filter(openOf), ...pool];
+  if (openAll.length > OPEN_CAP) {
+    const seenAcc = (e) => {
+      const ws = L.words[e[0]];
+      return ws && (ws.r + ws.wr) > 0 ? recentAcc(ws) : -1;   // unseen words wait their turn
+    };
+    const ranked = [...openAll].sort((a, b) =>
+      seenAcc(b) - seenAcc(a) || (L.words[b[0]] ? L.words[b[0]].cc : 0) - (L.words[a[0]] ? L.words[a[0]].cc : 0));
+    const keep = new Set(ranked.slice(0, OPEN_CAP).map((e) => e[0]));
+    const parked = ranked.slice(OPEN_CAP);
+    if (parked.length) {
+      const lastSeen = (e) => { const ws = L.words[e[0]]; return ws && ws.d && ws.d.length ? ws.d[ws.d.length - 1] : ""; };
+      let pick = parked[0];
+      parked.forEach((e) => { if (lastSeen(e) < lastSeen(pick)) pick = e; });
+      keep.add(pick[0]);
+    }
+    due = due.filter((e) => !openOf(e) || keep.has(e[0]));    // reviews of finished words always run
+    pool = pool.filter((e) => keep.has(e[0]));
+  }
   due.sort((a, b) => (L.words[a[0]].due < L.words[b[0]].due ? -1 : 1));
   /* weighted random order: weakest words more likely early, but never deterministic */
   const wt = (e) => { const ws = L.words[e[0]]; return ws ? (ws.wr + 1) / (ws.cc + 1) : 1.3; };
