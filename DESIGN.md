@@ -981,6 +981,43 @@ against the script. Verified failing on the build before, and against three
 deliberately broken builds: trophies counted as practice, hidden time booked on
 return, parent time inside Dauer.
 
+### Fehler über die Zeit — the dated error log
+
+`mx` on a word is a lifetime tally with no dates. It can say he confuses m with
+n; it cannot say whether that is getting better, and that is the only question
+that decides whether a drill deserves his minutes. Buchstaben-Blitz was run 42
+rounds on the strength of a number that could only grow.
+
+Every reading answer now also lands in `L.ers[iso] = { n, w, p }`: answers,
+wrong answers, and the letter pairs from `letterDiffs`, the same diff the
+dashboard's lifetime card uses. `n` is the denominator, so a fortnight compares
+with a fortnight of a different length. Turbo answers are excluded — forced
+≤500 ms, so their error rate is not comparable with a normal day's. Mini-games
+never touch it: their answers are not curriculum reading. 60 days, like `days`.
+
+The dashboard shows errors per 100 answers for the last 14 days against the 14
+before, and per-pair counts for both. Collection starts the day it shipped
+(18 Sep 2026), so the earlier window is empty at first and the card says so.
+
+**What prompted it** (measured from the 18 Sep export): 782 Buchstaben-Blitz
+answers against 42 completed rounds, so 19% of drill answers came from rounds
+he abandoned. A round is 15 items in a fixed order — 2 bare letters, 5
+syllables, 8 real words — and `letterExposure` gives the first five the longest
+flash, 1500 ms at his setting against 700 ms for items 11 to 15. Restarting
+after five items therefore keeps him on the easiest items at the slowest
+exposure, earns about a quarter more ring seconds per answer, and never reaches
+the word items, which are the half aimed at reading. Meanwhile the drill's own
+m/n number was 91% over 631 answers while his English reading still showed
+about 44 m↔n substitutions. Drill mastery without transfer, the same shape as
+the b/d case above. The drill is switched off; this log is how the decision to
+switch it back on gets made — by a falling error rate, not by a drill score.
+If it does come back, the round has to resume where he left it instead of
+restarting, or the shortcut is still there.
+
+`test_error_log` pins the counting, the 60-day trim and the mini-game exclusion.
+It fails on the previous build, and on two broken ones: every answer counted as
+wrong, and a Tier-Blitz answer leaking into the reading log.
+
 ### Fehlerarten — four mechanisms, four remedies
 
 The raw letter tally hides that different errors need different responses, and
@@ -1090,6 +1127,7 @@ updates itself".
 
 ## Storage
 
-Keys: `sr.de`, `sr.en` (per-language progress), `sr.meta` (settings), `sr.ach`
-(achievements), `sr.sess` (sittings for the dashboard). Dual-mode by design — `window.storage` inside a Claude artifact,
+Keys: `sr.de`, `sr.en` (per-language progress, including `days` and the dated
+error log `ers`), `sr.meta` (settings), `sr.ach` (achievements), `sr.sess`
+(sittings for the dashboard). Dual-mode by design — `window.storage` inside a Claude artifact,
 `localStorage` when deployed standalone — so the same source runs in both hosts.

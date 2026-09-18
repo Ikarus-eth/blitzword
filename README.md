@@ -104,6 +104,9 @@ prints `DONE` — same files, same pass rule, resumable.
   of `test_animal_mix`, which looks exactly like a hang in the test. Use
   `tools/run_batched.sh`. It also pins `TZ`: several tests key "today" by
   date, and a run crossing local midnight fails for no reason.
+- **`mx` is lifetime-only.** Any question of the form "is this getting better"
+  has to come from `L.ers`, the dated error log (60 days, reading only, turbo
+  excluded), not from the lifetime confusion tallies, which can only grow.
 - **Never leave a repeating timer running in the app.** A 15 s `setInterval`
   added for session saves made `smoketest2` hang: it ends by letting the event
   loop drain, and a repeating timer never lets it, so the runner killed it at

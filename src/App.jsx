@@ -1020,6 +1020,51 @@ function trimDays(days) {
   const ks = Object.keys(days).sort();
   while (ks.length > 60) delete days[ks.shift()];
 }
+
+/* ------------------------ dated error log -------------------------
+   `mx` on a word is a lifetime tally with no dates. It can say which letters
+   he confuses; it cannot say whether that is getting better, which is the only
+   question that decides whether a drill is worth his minutes. The b/d drill was
+   run 42 rounds on the strength of a lifetime number that could only grow.
+
+   So every reading answer also lands in a per-day record: `n` answers, `w`
+   wrong, and the letter pairs from the same diff the dashboard already uses.
+   `n` is the denominator, so two weeks can be compared with two weeks at
+   different lengths. Turbo is excluded: it is forced ≤500 ms and its error rate
+   is not comparable with a normal day's. Mini-games never touch this — their
+   answers are not curriculum reading. 60 days, like `days`. */
+function trimErs(ers) {
+  const ks = Object.keys(ers).sort();
+  while (ks.length > 60) delete ers[ks.shift()];
+}
+function noteError(L, today, target, chosen, ok) {
+  const ers = L.ers || (L.ers = {});
+  const rec = ers[today] || (ers[today] = { n: 0, w: 0, p: {} });
+  rec.n++;
+  if (!ok) {
+    rec.w++;
+    const diffs = letterDiffs(target, chosen);
+    if (!diffs.length) rec.p.sonstige = (rec.p.sonstige || 0) + 1;
+    else diffs.forEach(([a, b]) => {
+      const key = [a.toLowerCase(), b.toLowerCase()].sort().join("↔");
+      rec.p[key] = (rec.p[key] || 0) + 1;
+    });
+  }
+  trimErs(ers);
+}
+/* one window of that log: `back` days ago, `len` days long */
+function ersWindow(L, back, len) {
+  const out = { n: 0, w: 0, p: {}, days: 0 };
+  const base = new Date();
+  for (let i = back; i < back + len; i++) {
+    const d = new Date(base); d.setDate(base.getDate() - i);
+    const rec = (L.ers || {})[tISO(d)];
+    if (!rec) continue;
+    out.days++; out.n += rec.n || 0; out.w += rec.w || 0;
+    Object.entries(rec.p || {}).forEach(([k, v]) => { out.p[k] = (out.p[k] || 0) + v; });
+  }
+  return out;
+}
 /* The longest single uninterrupted stretch that can still be called practice.
    Past this he has walked off, and walking off earns nothing. */
 const IDLE_MAX = 30;
@@ -3116,6 +3161,7 @@ export default function App() {
       const pos = Math.min(queueRef.current.length, idxRef.current + 3 + Math.floor(Math.random() * 4));
       queueRef.current.splice(pos, 0, cur);              // re-queue 3–6 later
     }
+    if (!turbo) noteError(L, today, target, w, ok);   // dated error log, see trimErs
     if (sndRef.current) speak(target, lang, voiceURIsRef.current, speechRateRef.current, speechPitchRef.current); // hear the word either way, right or wrong
 
     const bonus = creditDay(L, active);
@@ -3959,6 +4005,11 @@ export default function App() {
     const PL = data[dashLang];
     const plist = LISTS[dashLang];
     const { pairs, letterList } = analyzeConfusions(PL);
+    const er14 = ersWindow(PL, 0, 14), erPrev = ersWindow(PL, 14, 14);
+    const erRate = (x) => (x.n ? (100 * x.w) / x.n : null);
+    const erPairs = [...new Set([...Object.keys(er14.p), ...Object.keys(erPrev.p)])]
+      .map((k) => ({ pair: k, now: er14.p[k] || 0, prev: erPrev.p[k] || 0 }))
+      .sort((a, b) => b.now - a.now || b.prev - a.prev).slice(0, 8);
     const missSplit = missKinds(PL, dashLang);
     const lvlStats = levelStats(PL, plist);
     const tiers = tierCounts(PL);
@@ -4441,8 +4492,47 @@ export default function App() {
           )}
         </div>
 
+        <div data-errlog style={{ ...cardSt, padding: 14 }}
+          data-err-n14={er14.n} data-err-w14={er14.w} data-err-nprev={erPrev.n} data-err-wprev={erPrev.w}>
+          <div style={{ fontWeight: 800, marginBottom: 4, fontSize: 15 }}>Fehler über die Zeit</div>
+          <div style={{ fontSize: 12, color: "#8CA0B5", marginBottom: 8 }}>
+            Nur Lesespiel, ohne 🚀-Wiederholung. Gezählt wird ab dem Tag, an dem diese Zählung eingebaut wurde,
+            darum sind ältere Zeiträume anfangs leer.
+          </div>
+          {er14.n + erPrev.n === 0 ? (
+            <div style={{ fontSize: 13, color: "#8CA0B5" }}>Die Zählung beginnt mit der nächsten Übung.</div>
+          ) : (
+            <>
+              <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>
+                Fehler je 100 Antworten: letzte 14 Tage {erRate(er14) === null ? "–" : erRate(er14).toFixed(1)}
+                {" "}({er14.w}/{er14.n}) · davor {erRate(erPrev) === null ? "–" : erRate(erPrev).toFixed(1)}
+                {erPrev.n ? ` (${erPrev.w}/${erPrev.n})` : ""}
+              </div>
+              {erPairs.length > 0 && (
+                <table style={{ borderCollapse: "collapse", fontSize: 13 }}>
+                  <thead><tr style={{ color: "#5B6C82" }}>
+                    <th style={{ textAlign: "left", padding: "3px 10px 3px 0", fontWeight: 800 }}>Paar</th>
+                    <th style={{ textAlign: "right", padding: "3px 10px", fontWeight: 800 }}>14 Tage</th>
+                    <th style={{ textAlign: "right", padding: "3px 0", fontWeight: 800 }}>davor</th>
+                  </tr></thead>
+                  <tbody>
+                    {erPairs.map((x) => (
+                      <tr key={x.pair} data-err-pair={x.pair} data-err-now={x.now} data-err-prev={x.prev}
+                        style={{ borderTop: "1px solid #E4ECF3" }}>
+                        <td style={{ padding: "3px 10px 3px 0", fontWeight: 800 }}>{x.pair}</td>
+                        <td style={{ textAlign: "right", padding: "3px 10px" }}>{x.now}</td>
+                        <td style={{ textAlign: "right", padding: "3px 0", color: "#8CA0B5" }}>{x.prev || "–"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </>
+          )}
+        </div>
+
         <div style={{ ...cardSt, padding: 14 }}>
-          <div style={{ fontWeight: 800, marginBottom: 8, fontSize: 15 }}>Buchstaben-Verwechslungen</div>
+          <div style={{ fontWeight: 800, marginBottom: 8, fontSize: 15 }}>Buchstaben-Verwechslungen (gesamt)</div>
           {letterList.length === 0 ? (
             <div style={{ fontSize: 13, color: "#8CA0B5" }}>Keine.</div>
           ) : (
