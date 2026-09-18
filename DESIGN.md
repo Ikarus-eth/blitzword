@@ -235,6 +235,42 @@ readers latch onto salient irrelevant cues (Ehri's phases; Pullen & Lane
 recommend single-colour letter sets for this reason), with learners cued during
 practice but not at test performing worst of all.
 
+### A won round takes a minute off the day
+
+One Vokal-Blitz round above 70% — 9 of 12 or better, a full round — takes a
+minute off today's goal. Once a day. No day may finish under `GOAL_FLOOR`,
+8 minutes, whatever is earned.
+
+Why this game and no other: medial-vowel confusions are his largest error type
+by a distance (went/want, come/came, then/them, make/made), and on the 18 Sep
+2026 export he had played this drill **twice, ever**, against 35 rounds of the
+b/d drill aimed at his smallest error type. Nothing routed him here, so the
+reward does. If a later session is tempted to "fix the inconsistency" by paying
+the other games too, this is the reason not to.
+
+Three numbers set the shape:
+
+- **It cannot be tapped through.** Three options per item, so 9 of 12 by
+  guessing happens about once in a thousand rounds.
+- **It is not free.** His measured vowel accuracy is 70% (34/47 English,
+  52/76 German), so about half his rounds clear the bar.
+- **One round, because a round is worth about two minutes.** It takes roughly a
+  minute and already credits its own time to the ring like every other game. Add
+  a minute off the goal and the payoff doubles; uncapped, the fastest way
+  through an 11-minute day is vowel rounds and no reading at all, which would
+  displace the main exercise. Capped at one, the most it can move is a minute.
+
+The minute lands on the day record as `vb` and **`goalOf` is the only place that
+knows about it**, so the ⏱ ring, the flame, the streak, the joker rule and the
+14-day chart all keep reading one number. Two displays of one test drifting
+apart has cost this app a streak once and a green bar in the chart once; it does
+not get a third chance. A lost round costs nothing and nothing is ever taken
+back.
+
+`test_vowel_bonus` pins the threshold, the once-a-day cap, the full-round
+requirement and the floor. It fails on the build before, and on three broken
+ones: the threshold loosened to 8 of 12, the cap removed, and the floor removed.
+
 ## Buchstaben-Blitz — a temporary drill, not a permanent mode
 
 `b` and `d` are the same shape mirrored; `m` and `n` are the same arch once or

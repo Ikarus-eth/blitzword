@@ -232,7 +232,13 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
    halfway through a session he has already started. */
 const DAY_GOAL = 660;          // 11 minutes
 const LEGACY_GOAL = 600;       // what every day up to 5 Sep 2026 was measured against
-const goalOf = (d) => (d && d.g) || LEGACY_GOAL;
+/* A won Vokal-Blitz round takes a minute off today's goal (`vb` on the day
+   record), once a day, and no day may finish under GOAL_FLOOR. Both live here
+   rather than in the ring, so the ring, the flame, the streak, the joker rule
+   and the 14-day chart keep reading one number — the split between two
+   displays of one test is the mistake this file has already paid for twice. */
+const GOAL_FLOOR = 480;        // 8 minutes, whatever is earned
+const goalOf = (d) => Math.max(GOAL_FLOOR, ((d && d.g) || LEGACY_GOAL) - ((d && d.vb) || 0));
 const dayPct = (d) => Math.min(100, Math.floor((((d && d.s) || 0) / goalOf(d)) * 100));
 const dayDone = (d) => (((d && d.s) || 0) >= goalOf(d));
 
@@ -755,6 +761,25 @@ function buildLetterQueue(L, list, lang, pair, n) {
 const letterExposure = (i, speed) => DUR[Math.min(speed + (i < 5 ? 0 : i < 10 ? 1 : 2), DUR.length - 1)];
 
 const VOWEL_N = 12;
+/* Why a vowel round pays a minute and the other games pay nothing.
+   Medial-vowel confusions are his largest error type by a distance — went/want,
+   come/came, then/them, make/made — and on the 18 Sep export he had played this
+   drill twice, ever, against 35 rounds of the b/d drill aimed at his smallest
+   error type. Nothing routed him to it, so the reward does.
+
+   The threshold cannot be tapped through: each item has three options, so
+   clearing 9 of 12 by guessing happens about once in a thousand rounds. At his
+   measured vowel accuracy (70%: 34/47 English, 52/76 German) about half his
+   rounds clear it — worth chasing, not free.
+
+   One round a day pays, and only a full 12-item round. A round takes about a
+   minute and already credits its own time to the ring like any other game, so
+   an uncapped bonus would make vowel rounds worth roughly two minutes each and
+   the reading loop — the main exercise — could be skipped entirely. Capped at
+   one, the most it can move is a minute. */
+const VOWEL_PASS = 0.7;
+const VOWEL_BONUS = 60;
+const VOWEL_BONUS_MAX = 60;
 
 /* ===================== Tier-Blitz (Krogufant) ======================
    A third sublexical exercise, behind its own button, on the model of Sara
@@ -2475,6 +2500,7 @@ export default function App() {
   const [vq, setVq] = useState([]);             // Vokal-Blitz round
   const [vi, setVi] = useState(0);
   const [vfb, setVfb] = useState(null);
+  const [vEarned, setVEarned] = useState(0);   // seconds this round took off the day
   const vScore = useRef({ r: 0, n: 0 });
   const vAt = useRef(0);
   const [tq, setTq] = useState([]);             // Tipp-Blitz round
@@ -2922,6 +2948,7 @@ export default function App() {
     const lg = langRef.current;
     const q = buildVowelQueue(dataRef.current[lg], LISTS[lg], lg, VOWEL_N);
     if (!q.length) return;
+    setVEarned(0);
     vScore.current = { r: 0, n: 0 }; vRun.current = 0;
     setVq(q); setVi(0); setVfb(null); setPhase("vowel");
     setTimeout(() => sayWord(q[0].word), 350);
@@ -2961,6 +2988,22 @@ export default function App() {
     if (vi + 1 >= vq.length) {
       const { r, n } = vScore.current;
       const lg = langRef.current;
+      /* the minute, once a day, on a full round only — a short queue at 100%
+         must not be worth the same as twelve items */
+      let earned = 0;
+      if (n >= VOWEL_N && r / n > VOWEL_PASS) {
+        const prev = dataRef.current;
+        const L = clone(prev[lg]);
+        const day = L.days[tISO()] || (L.days[tISO()] = { s: 0, b1: 0, b2: 0, g: DAY_GOAL });
+        earned = Math.min(VOWEL_BONUS, Math.max(0, VOWEL_BONUS_MAX - (day.vb || 0)));
+        if (earned) {
+          day.vb = (day.vb || 0) + earned;
+          const newData = { ...prev, [lg]: L };
+          dataRef.current = newData; setData(newData); scheduleSave(lg);
+          if (sndRef.current) sfx.fanfare();
+        }
+      }
+      setVEarned(earned);
       achRef.current = setBook(achRef.current, lg, {
         vRounds: (achRef.current[lg].vRounds || 0) + 1,
         vPerfect: (achRef.current[lg].vPerfect || 0) + (n >= 10 && r === n ? 1 : 0)
@@ -3738,6 +3781,12 @@ export default function App() {
         <style>{css}</style>
         <div style={{ fontSize: 66 }}>{r === n ? "🏆" : r * 2 >= n ? "👏" : "💪"}</div>
         <div style={{ fontSize: 40, fontWeight: 900 }}>{r} / {n}</div>
+        {vEarned > 0 && (
+          <div data-vowel-bonus={vEarned} style={{
+            ...cardSt, padding: "10px 22px", borderRadius: 18, background: "#FFF3D6", color: "#8A5A00",
+            fontSize: 30, fontWeight: 900, animation: "bwPop .35s ease-out"
+          }}>⏱ −1:00</div>
+        )}
         <div style={{ display: "flex", gap: 16 }}>
           <button onClick={startVowel} className="bigbtn" style={{
             ...cardSt, width: 104, height: 104, borderRadius: "50%", background: C.blue,
