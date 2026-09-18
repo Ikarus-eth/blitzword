@@ -1050,6 +1050,102 @@ const span = (ref) => {
   return sec > 0 ? sec : 0;
 };
 
+/* ---------------------------- sessions -----------------------------
+   Where the time at the iPad goes, sitting by sitting, for the parent.
+
+   Measured apart from the ring on purpose, so it can check the ring instead
+   of repeating it. The ring credits the span between answers. This records
+   presence per screen: time counts while the app is visible and the screen was
+   touched within the last IDLE_MAX seconds, the same walk-away rule the ring
+   uses. Beyond that it is idle, and idle is only written down when the next
+   touch shows he came back within SESS_GAP. A longer gap ends the sitting, so
+   an iPad left on the trophy screen does not become forty minutes of trophies.
+
+   `cr` is the exact sum handed to creditDay while the sitting was open, so the
+   dashboard's Ring column is the ring's own number, not an estimate of it. Ring
+   above time-in-games means the ring was paid for time the app was not visible:
+   a span running when the iPad was locked is capped at IDLE_MAX but not cut.
+
+   Parent screens are booked under `parent` and kept out of his totals. The
+   gate ("pin") counts as home: it is on his side of the gear, and he has
+   cracked one before. */
+const SESS_GAP = 300;
+const SESS_KEEP = 60;
+const SESS_GROUP = {
+  play: "work", vowel: "work", letters: "work", mix: "work", type: "work",
+  achievements: "trophy", stack: "trophy",
+  chunkend: "fest", levelup: "fest", gold: "fest", mixer: "fest",
+  vdone: "fest", ldone: "fest", mdone: "fest", tdone: "fest",
+  parent: "parent"
+};
+const sessGroup = (ph) => SESS_GROUP[ph] || "home";
+const r3 = (x) => Math.round(x * 1000) / 1000;
+function sessNew(now) {
+  return { t0: now, t1: now, la: now, p: {}, idle: 0, cr: 0, n: {}, ok: {}, cap: 0, md: 0, lg: {} };
+}
+/* Books [mark, now] to the open sitting: up to IDLE_MAX after the last touch
+   goes to the current screen, anything past that is held as pending idle. */
+function sessAdvance(tk, now) {
+  const c = tk.cur;
+  if (c && tk.vis && now > tk.mark) {
+    const actEnd = tk.act + IDLE_MAX * 1000;
+    const pEnd = Math.min(now, actEnd);
+    if (pEnd > tk.mark) {
+      c.p[tk.ph] = r3((c.p[tk.ph] || 0) + (pEnd - tk.mark) / 1000);
+      c.t1 = Math.max(c.t1, pEnd);
+    }
+    const iStart = Math.max(tk.mark, actEnd);
+    if (now > iStart) tk.idleP += (now - iStart) / 1000;
+  }
+  if (now > tk.mark) tk.mark = now;
+}
+/* A touch, or the app coming back into view. */
+function sessAct(tk, list, now) {
+  sessAdvance(tk, now);
+  if (!tk.cur || now - tk.act > SESS_GAP * 1000) {
+    const i = tk.cur ? list.indexOf(tk.cur) : -1;
+    if (i >= 0 && !sessCounts(tk.cur)) list.splice(i, 1);
+    tk.cur = sessNew(now);
+    list.push(tk.cur);
+    while (list.length > SESS_KEEP) list.shift();
+  } else if (tk.idleP > 0) {
+    tk.cur.idle = r3(tk.cur.idle + tk.idleP);
+    tk.cur.t1 = now;
+  }
+  tk.idleP = 0;
+  tk.act = now; tk.mark = now; tk.cur.la = now;
+}
+function sessSplit(x) {
+  const g = { work: 0, trophy: 0, fest: 0, home: 0, parent: 0 };
+  Object.entries(x.p || {}).forEach(([ph, sec]) => { g[sessGroup(ph)] += sec; });
+  const n = x.n || {}, ok = x.ok || {}, idle = x.idle || 0;
+  return {
+    ...g, idle, dur: g.work + g.trophy + g.fest + g.home + idle, ring: x.cr || 0,
+    read: n.read || 0, readOk: ok.read || 0,
+    mini: (n.vowel || 0) + (n.letters || 0) + (n.mix || 0) + (n.type || 0)
+  };
+}
+/* worth listing: he answered something, or spent 10 s on his side of the gear */
+function sessCounts(x) {
+  const t = sessSplit(x);
+  return t.read + t.mini > 0 || t.dur >= 10;
+}
+function normSess(saved) {
+  const list = saved && Array.isArray(saved.list)
+    ? saved.list.filter((x) => x && typeof x.t0 === "number" && x.p && typeof x.p === "object")
+    : [];
+  return { v: 1, list: list.slice(-SESS_KEEP) };
+}
+const fmtMS = (sec) => {
+  const t = Math.max(0, Math.round(sec || 0));
+  return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`;
+};
+const WEEKDAY_DE = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
+const fmtStart = (ms) => {
+  const d = new Date(ms);
+  return `${WEEKDAY_DE[d.getDay()]} ${d.getDate()}.${d.getMonth() + 1}. ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+};
+
 /* One answered question in any of the three games credits its active time to
    today's record and pays the daily minute milestones. All three call this.
    It used to be written inline in the reading loop only, so a mini-game answer
@@ -2066,6 +2162,7 @@ function tryUrlImport() {
     if (obj.en) persist("sr.en", migrate(obj.en));
     if (obj.ach) persist("sr.ach", migrateAch(obj.ach));
     if (obj.meta) persist("sr.meta", obj.meta);
+    if (obj.sess && Array.isArray(obj.sess.list)) persist("sr.sess", normSess(obj.sess));
     const url = new URL(window.location.href);
     url.searchParams.delete("import");
     window.history.replaceState({}, "", url.toString());
@@ -2388,6 +2485,30 @@ export default function App() {
   const chunkRef = useRef({ q: 0, right: 0, coins: 0, sec: 0, mast: [], reach0: 1 });
   const modeRef = useRef({ t: "normal", lvl: 0 });
   const pendingGold = useRef(null);
+  /* Sessions (see sessAdvance). Refs rather than state: every touch passes
+     through here and none of it should re-render anything. */
+  const sessRef = useRef({ v: 1, list: [] });
+  const trk = useRef({ ready: false, cur: null, mark: 0, act: 0, vis: true, ph: "load", idleP: 0, missAt: 0 });
+  const sessT = useRef(null);
+  const saveSess = () => {
+    clearTimeout(sessT.current);
+    sessT.current = setTimeout(() => persist("sr.sess", sessRef.current), 1200);
+  };
+  /* Called by every answer handler with the exact seconds it gave creditDay. */
+  const sessNote = (game, ok, sec, lg) => {
+    const tk = trk.current;
+    if (!tk.ready) return;
+    const now = Date.now();
+    if (!tk.cur) sessAct(tk, sessRef.current.list, now);
+    sessAdvance(tk, now);
+    const c = tk.cur;
+    c.n[game] = (c.n[game] || 0) + 1;
+    if (ok) c.ok[game] = (c.ok[game] || 0) + 1;
+    c.cr = r3(c.cr + sec);
+    if (sec >= IDLE_MAX - 0.001) c.cap++;
+    c.lg[lg] = (c.lg[lg] || 0) + 1;
+    saveSess();
+  };
 
   /* checks the 100 badges against the given data (+ current ach
      extras), merges any newly-true ones into ach, persists, and
@@ -2429,7 +2550,7 @@ export default function App() {
         if (typeof meta.speechRate === "number" && meta.audioV >= 2) setSpeechRate(meta.speechRate);
         if (typeof meta.speechPitch === "number") setSpeechPitch(meta.speechPitch);
       }
-      const [de, en, savedAch] = await Promise.all([sget("sr.de"), sget("sr.en"), sget("sr.ach")]);
+      const [de, en, savedAch, savedSess] = await Promise.all([sget("sr.de"), sget("sr.en"), sget("sr.ach"), sget("sr.sess")]);
       const loadedAch = migrateAch(savedAch);
       /* written back at once. Left in memory only, the seeding would re-run on
          every load, and by the second load the German set would contain badges
@@ -2445,6 +2566,18 @@ export default function App() {
       if (wasOld.de) persist("sr.de", mig.de);
       if (wasOld.en) persist("sr.en", mig.en);
       setData(mig);
+      /* A reload inside a sitting (iOS drops backgrounded pages) continues it:
+         the last sitting is reopened and sessAct decides on the gap. */
+      sessRef.current = normSess(savedSess);
+      {
+        const tk = trk.current, list = sessRef.current.list, now = Date.now();
+        const last = list[list.length - 1];
+        if (last) { tk.cur = last; tk.act = last.la || last.t1; }
+        tk.mark = now;
+        tk.vis = document.visibilityState !== "hidden";
+        tk.ready = true;
+        if (tk.vis) sessAct(tk, list, now);
+      }
       setPhase("home");
     })();
   }, []);
@@ -2461,6 +2594,7 @@ export default function App() {
     const d = dataRef.current;
     if (d) { persist("sr.de", d.de); persist("sr.en", d.en); }
     persist("sr.meta", { lang: langRef.current, speed: speedRef.current, snd: sndRef.current, games: gamesRef.current, jok: jokRef.current, gate: gateRef.current, pagesUrl: pagesUrlRef.current, voiceURIs: voiceURIsRef.current, speechRate: speechRateRef.current, speechPitch: speechPitchRef.current, audioV: 2 });
+    if (trk.current.ready) { sessAdvance(trk.current, Date.now()); persist("sr.sess", sessRef.current); }
   };
   useEffect(() => {
     if (phase === "load") return;
@@ -2468,9 +2602,36 @@ export default function App() {
     return () => clearTimeout(t);
   }, [lang, speed, snd, games, jok, gate, pagesUrl, voiceURIs, speechRate, speechPitch, phase]);
   useEffect(() => {
-    const h = () => { if (document.visibilityState === "hidden") flush(); };
+    const h = () => {
+      const tk = trk.current, now = Date.now();
+      if (document.visibilityState === "hidden") {
+        if (tk.ready) sessAdvance(tk, now);
+        tk.vis = false;
+        flush();
+      } else {
+        tk.vis = true; tk.mark = now;
+        if (tk.ready) { sessAct(tk, sessRef.current.list, now); saveSess(); }
+      }
+    };
+    /* Capture phase on the document, so a tap is booked before any handler it
+       triggers changes the screen. Click as well as pointerdown: the tests
+       dispatch clicks, and a tap produces both, which books nothing twice.
+
+       No periodic timer: every tap, screen change, answer and hide books and
+       saves, and an untouched stretch books nothing anyway. A 15 s interval was
+       tried and left smoketest2 running until the runner killed it — that test
+       ends by letting the event loop drain, and a repeating timer never lets it. */
+    const touch = () => {
+      const tk = trk.current;
+      if (tk.ready && tk.vis) { sessAct(tk, sessRef.current.list, Date.now()); saveSess(); }
+    };
     document.addEventListener("visibilitychange", h);
-    return () => { document.removeEventListener("visibilitychange", h); flush(); };
+    ["pointerdown", "click", "keydown"].forEach((ev) => document.addEventListener(ev, touch, true));
+    return () => {
+      document.removeEventListener("visibilitychange", h);
+      ["pointerdown", "click", "keydown"].forEach((ev) => document.removeEventListener(ev, touch, true));
+      flush();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   /* keeps the dashboard's voice picker current — getVoices() loads
@@ -2516,6 +2677,7 @@ export default function App() {
   const startChunk = () => {
     const ch = chunkRef.current;
     ch.q = 0; ch.right = 0; ch.coins = 0; ch.sec = 0; ch.mast = [];
+    trk.current.missAt = 0;
     ch.reach0 = reachLevel(dataRef.current[langRef.current], LISTS[langRef.current]);
     rollRef.current = []; runRef.current = 0; pendingLvl.current = null; pendingGold.current = null;
     queueRef.current = modeRef.current.t === "turbo"
@@ -2557,7 +2719,9 @@ export default function App() {
        a minute of reading — worst at turtle speed, where the flash is most of
        the item — and this is the drill he gets sent to when reading is going
        badly. Adding exposure fixed that half; the span fixes the rest. */
-    const lBonus = creditDay(L, span(lAt));
+    const lSec = span(lAt);
+    const lBonus = creditDay(L, lSec);
+    sessNote("letters", ok, lSec, lg);
     L.coins += lBonus;
     const newData = { ...prev, [lg]: L };
     dataRef.current = newData; setData(newData); scheduleSave(lg);
@@ -2618,7 +2782,9 @@ export default function App() {
        previous answer, capped at IDLE_MAX. Crediting only the response window
        would make a Tier-Blitz minute worth less than a reading minute, and the
        exposure here is the longest in the app. */
-    const mBonus = creditDay(L, span(mAt));
+    const mSec = span(mAt);
+    const mBonus = creditDay(L, mSec);
+    sessNote("mix", ok, mSec, lg);
     L.coins += mBonus;
     const newData = { ...prev, [lg]: L };
     dataRef.current = newData; setData(newData); scheduleSave(lg);
@@ -2695,7 +2861,9 @@ export default function App() {
     else { vk.wr++; vk.mx = vk.mx || {}; vk.mx[opt] = (vk.mx[opt] || 0) + 1; }
     /* counts toward the daily minute goal like any other answered question —
        active time is the span since the previous answer, capped at IDLE_MAX */
-    const vBonus = creditDay(L, span(vAt));
+    const vSec = span(vAt);
+    const vBonus = creditDay(L, vSec);
+    sessNote("vowel", ok, vSec, lg);
     L.coins += vBonus;
     const newData = { ...prev, [lg]: L };
     dataRef.current = newData;
@@ -2761,7 +2929,9 @@ export default function App() {
     const tp = ws.tp || (ws.tp = { r: 0, wr: 0 });
     if (ok) { tp.r++; L.coins += 2; }
     else { tp.wr++; tp.mx = tp.mx || {}; tp.mx[ans] = (tp.mx[ans] || 0) + 1; }
-    const tBonus = creditDay(L, span(tAt));
+    const tSec = span(tAt);
+    const tBonus = creditDay(L, tSec);
+    sessNote("type", ok, tSec, lg);
     L.coins += tBonus;
     const newData = { ...prev, [lg]: L };
     dataRef.current = newData;
@@ -2803,6 +2973,13 @@ export default function App() {
      to hear again, until he taps continue. A miss is the one moment in the loop
      where there is something to look at, and 1.9 s was not enough to look at it. */
   const advanceAfterFb = () => {
+      /* seconds spent on a miss screen before continue, for the dashboard: a
+         pace reward would erode exactly this, so it is measured from now on */
+      const tk = trk.current;
+      if (tk.missAt) {
+        if (tk.cur) tk.cur.md = r3(tk.cur.md + Math.min((Date.now() - tk.missAt) / 1000, IDLE_MAX));
+        tk.missAt = 0;
+      }
       if (pendingGold.current) {
         setNewLvl(pendingGold.current); pendingGold.current = null;
         modeRef.current = { t: "normal", lvl: 0 };
@@ -2847,6 +3024,10 @@ export default function App() {
      Without this reset the first answer after a visit to the trophies would
      bill the whole visit to the daily ring. */
   useEffect(() => {
+    /* the sitting's clock books the screen being left before switching */
+    const tk = trk.current;
+    if (tk.ready) { sessAdvance(tk, Date.now()); saveSess(); }
+    tk.ph = phase;
     if (phase === "play") spanAt.current = Date.now();
     else if (phase === "vowel") vAt.current = Date.now();
     else if (phase === "type") tAt.current = Date.now();
@@ -2938,6 +3119,8 @@ export default function App() {
     if (sndRef.current) speak(target, lang, voiceURIsRef.current, speechRateRef.current, speechPitchRef.current); // hear the word either way, right or wrong
 
     const bonus = creditDay(L, active);
+    sessNote("read", ok, active, lang);
+    if (!ok) trk.current.missAt = Date.now();
     earned += bonus;
     L.coins += earned;
 
@@ -3793,11 +3976,18 @@ export default function App() {
     const totalWordsN = plist.reduce((a, l) => a + l.length, 0);
     /* Badges travel with the words. Leaving them out meant a device move wiped
        every award he had earned while the reading progress arrived intact. */
-    const fullExport = JSON.stringify({ de: data.de, en: data.en, ach, meta: { lang, speed, snd, games, jok, gate } });
+    const fullExport = JSON.stringify({ de: data.de, en: data.en, ach, meta: { lang, speed, snd, games, jok, gate }, sess: sessRef.current });
     /* Shown beside the b/d switch so the "an" state is honest: the launcher
        still needs a pair actually costing him answers to have something to
        drill, and saying which one it is beats a knob that looks broken. */
     const workPairsDash = letterPairsNeedingWork(PL, dashLang);
+    /* sittings, newest first; both languages, since time at the iPad is one
+       quantity whichever flag he tapped */
+    const sessAll = sessRef.current.list.filter(sessCounts).map((x) => ({ t0: x.t0, cap: x.cap || 0, md: x.md || 0, lg: x.lg || {}, ...sessSplit(x) }));
+    const sessRows = sessAll.slice(-20).reverse();
+    const wk = sessAll.filter((r) => r.t0 >= Date.now() - 7 * 864e5)
+      .reduce((a, r) => ({ dur: a.dur + r.dur, work: a.work + r.work, trophy: a.trophy + r.trophy, idle: a.idle + r.idle, n: a.n + 1 }), { dur: 0, work: 0, trophy: 0, idle: 0, n: 0 });
+    const pctOf = (x) => (wk.dur ? Math.round((100 * x) / wk.dur) : 0);
 
     return (
       <div className="bw" style={{ ...wrap, alignItems: "stretch", padding: 14, gap: 12, overflowY: "auto" }}>
@@ -3817,6 +4007,68 @@ export default function App() {
           </div>
         </div>
 
+
+        <div data-sessions style={{ ...cardSt, padding: 14 }}>
+          <div style={{ fontWeight: 800, marginBottom: 4, fontSize: 15 }}>⏱ Sitzungen</div>
+          <div style={{ fontSize: 12, color: "#8CA0B5", marginBottom: 10 }}>
+            Gezählt wird nur, solange die App offen ist und in den letzten 30 s berührt wurde. Länger
+            ohne Berührung steht unter 💤, nach 5 min Pause beginnt eine neue Sitzung. Der Eltern-Bereich
+            zählt nicht mit.
+          </div>
+          {wk.n > 0 && (
+            <div data-sess-week style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>
+              Letzte 7 Tage: {fmtMS(wk.dur)} in {wk.n} {wk.n === 1 ? "Sitzung" : "Sitzungen"} · Übung {pctOf(wk.work)} % · 🏆 {pctOf(wk.trophy)} % · 💤 {pctOf(wk.idle)} %
+            </div>
+          )}
+          {sessRows.length === 0 ? (
+            <div style={{ fontSize: 13, color: "#8CA0B5" }}>Noch keine Sitzung aufgezeichnet. Die erste erscheint nach der nächsten Übung.</div>
+          ) : (
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ borderCollapse: "collapse", fontSize: 13, width: "100%", whiteSpace: "nowrap" }}>
+                <thead>
+                  <tr style={{ color: "#5B6C82", textAlign: "right" }}>
+                    {["Beginn", "Dauer", "Übung", "Ring", "Wörter", "✓", "Mini", "🏆", "🎉", "🏠", "💤"].map((h, i) => (
+                      <th key={h} style={{ padding: "4px 6px", fontWeight: 800, textAlign: i === 0 ? "left" : "right" }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {sessRows.map((r) => {
+                    const over = r.ring > r.work + 1;
+                    const td = { padding: "5px 6px", textAlign: "right" };
+                    return (
+                      <tr key={r.t0} data-sess-row data-dur={r.dur.toFixed(2)} data-work={r.work.toFixed(2)}
+                        data-ring={r.ring.toFixed(3)} data-read={r.read} data-readok={r.readOk} data-mini={r.mini}
+                        data-trophy={r.trophy.toFixed(2)} data-fest={r.fest.toFixed(2)} data-home={r.home.toFixed(2)}
+                        data-idle={r.idle.toFixed(2)} data-parent={r.parent.toFixed(2)} data-cap={r.cap}
+                        data-md={r.md.toFixed(2)} data-ringover={over ? 1 : 0}
+                        style={{ borderTop: "1px solid #E4ECF3" }}>
+                        <td style={{ ...td, textAlign: "left" }}>{fmtStart(r.t0)} {r.lg.de ? "🇩🇪" : ""}{r.lg.en ? "🇬🇧" : ""}</td>
+                        <td style={{ ...td, fontWeight: 800 }}>{fmtMS(r.dur)}</td>
+                        <td style={td}>{fmtMS(r.work)}{r.cap ? <sup style={{ color: "#E2821E" }}> ⏸{r.cap}</sup> : null}</td>
+                        <td style={{ ...td, color: over ? "#E2821E" : C.ink, fontWeight: over ? 800 : 400 }}>{fmtMS(r.ring)}</td>
+                        <td style={td}>{r.read}</td>
+                        <td style={td}>{r.read ? `${Math.round((100 * r.readOk) / r.read)} %` : "–"}</td>
+                        <td style={td}>{r.mini || "–"}</td>
+                        <td style={td}>{fmtMS(r.trophy)}</td>
+                        <td style={td}>{fmtMS(r.fest)}</td>
+                        <td style={td}>{fmtMS(r.home)}</td>
+                        <td style={td}>{fmtMS(r.idle)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <div style={{ fontSize: 12, color: "#8CA0B5", marginTop: 8, lineHeight: 1.5 }}>
+            Dauer = Übung + 🏆 + 🎉 + 🏠 + 💤. Übung = Zeit in einem Spiel; ⏸ zählt Antworten, bei denen die
+            30-s-Grenze griff. Ring = was dem Tagesring gutgeschrieben wurde. Steht Ring orange über Übung, lief
+            ein Abschnitt weiter, während die App nicht offen war. Wörter = Antworten im Lesespiel, ✓ = davon
+            richtig, Mini = Antworten in den Mini-Spielen. 🏆 Abzeichen und Wortstapel · 🎉 Zwischenstände,
+            Feiern, Rundenende · 🏠 Startbildschirm · 💤 offen, aber nichts berührt.
+          </div>
+        </div>
         <div style={{ ...cardSt, padding: 14 }}>
           <div style={{ fontWeight: 800, marginBottom: 4, fontSize: 15 }}>Übungen auf dem Startbildschirm</div>
           <div style={{ fontSize: 12, color: "#8CA0B5", marginBottom: 10 }}>
@@ -4282,6 +4534,7 @@ export default function App() {
                 if (obj.en) persist("sr.en", migrate(obj.en));
                 if (obj.ach) persist("sr.ach", migrateAch(obj.ach));
                 if (obj.meta) persist("sr.meta", obj.meta);
+                if (obj.sess && Array.isArray(obj.sess.list)) persist("sr.sess", normSess(obj.sess));
                 setImportMsg("Importiert — lädt neu …");
                 setTimeout(() => window.location.reload(), 700);
               } catch (e) { setImportMsg("Konnte den Text nicht lesen."); }

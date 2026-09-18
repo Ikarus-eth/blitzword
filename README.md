@@ -104,6 +104,16 @@ prints `DONE` — same files, same pass rule, resumable.
   of `test_animal_mix`, which looks exactly like a hang in the test. Use
   `tools/run_batched.sh`. It also pins `TZ`: several tests key "today" by
   date, and a run crossing local midnight fails for no reason.
+- **Never leave a repeating timer running in the app.** A 15 s `setInterval`
+  added for session saves made `smoketest2` hang: it ends by letting the event
+  loop drain, and a repeating timer never lets it, so the runner killed it at
+  150 s and it looked like a hang inside the test. Sessions now save on taps,
+  screen changes, answers and hide, which is enough.
+- **Sittings (`sr.sess`) book presence from document-level click and pointerdown
+  listeners.** A test that expects time on a screen has to touch it (a click on
+  `document.body` is enough); an untouched stretch past 30 s is idle by design.
+  JSDOM takes ~0.3 s to render the trophy gallery and that is booked to the
+  screen being left, so keep tolerances at a second, not at a frame.
 - **`meta` has three write sites** — the export object, the debounced save and
   `flush()`. A field added to one and not the others survives until a device move
   and then vanishes. That is how the badge case was wiped once.

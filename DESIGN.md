@@ -792,7 +792,7 @@ marking on entry.
 
 ### Export
 
-The export carries `de`, `en`, `ach` and `meta`. Badges were left out originally,
+The export carries `de`, `en`, `ach`, `meta` and `sess`. Badges were left out originally,
 so moving to a new device restored every word and every level while silently
 wiping the entire trophy case. `meta.jok` is on the same list for the same
 reason: it is persistent user state, and a device move that dropped it would
@@ -919,7 +919,67 @@ words with their most common confusion, **letter-level confusion aggregation**
 (e.g. `a↔e (7×)`, derived by diffing every wrong tile against its target), a
 **Fehlerarten** split, a 14-day
 practice chart, the joker switches, voice settings, and export/import for moving
-progress between devices.
+progress between devices. **⏱ Sitzungen** sits first; see below.
+
+### Sitzungen — where the time at the iPad goes
+
+Asked for because it looked as if a lot of each sitting went on the trophies.
+The ring cannot show that: trophies earn nothing on it by construction, and
+until 16 Sep 2026 the app stored no wall-clock time at all, only credited
+seconds per day.
+
+**What the ring counts, measured on the live build before this was added**
+(scripted session, virtual clock): 60 s home + 180 s gallery + 30 s home, then
+▶, and the first answer credited 1.3 s, its own play time. 60 s on the chunk
+summary: the next answer credited 1.3 s. 120 s staring at one question: 30 s.
+The app hidden 10 min mid-question: 30 s. So the ring counts only time inside a
+game, with two leaks of at most IDLE_MAX per answer.
+
+**The log is measured apart from the ring, so it can check the ring.** Per
+sitting it books presence per screen: time counts while the app is visible and
+the screen was touched within IDLE_MAX, the ring's own walk-away rule. Past
+that it is idle (💤), and idle is only written down when the next touch shows
+he came back within `SESS_GAP` (5 min). A longer gap ends the sitting.
+Without that rule an iPad left on the trophy screen reads as forty minutes of
+trophies, which is the exact misreading this exists to prevent.
+
+- **Ring is the ring's number, not an estimate.** `cr` is the sum of the seconds
+  every answer handler passed to `creditDay` while the sitting was open.
+  `test_sessions` compares it to the day record to 0.2 s.
+- **Ring above time in games is the hidden-app leak showing.** A span that was
+  running when the iPad was locked is capped at IDLE_MAX but not cut, so the
+  ring is paid for up to 30 s of a locked screen. The row flags it in orange.
+  It is not closed: closing it lowers future credit, and whether it happens
+  often enough to matter is what this log will show.
+- **What keeps a locked iPad out of every column is `tk.mark = now` on the way
+  back into view.** The `tk.vis` guard in `sessAdvance` is defensive only: a
+  build without it passes every assertion, because nothing books time while
+  the app is hidden. A build without the mark reset fails three of them.
+- **Parent screens are booked under `parent` and left out of Dauer.** The gate
+  (`pin`) counts as home: it is on his side of the gear.
+- **Groups:** games = play, vowel, letters, mix, type · 🏆 = gallery and word
+  stack · 🎉 = chunk summary, level-up, gold, round-end screens, the Tier-Blitz
+  mixer · 🏠 = everything else. Dauer is the sum of those plus 💤, so the
+  columns add up.
+- **`md`, seconds on a miss screen before continue**, is recorded now because a
+  pace reward (the racing idea under discussion) would erode exactly that
+  dwell, and its baseline has to exist before any such reward does.
+- Refs, not state: every touch passes through it. Listeners are capture-phase
+  on the document so a tap is booked before the handler it triggers changes
+  the screen. Both `pointerdown` and `click`, because a tap produces both and
+  the tests dispatch only clicks; the second of the pair books nothing.
+- Storage is its own key, `sr.sess`, last 60 sittings, written by its own
+  debounce, by `flush()` and on hide. No periodic timer: an untouched stretch
+  books nothing anyway, and a repeating timer stops `smoketest2` from ever
+  exiting. Not in `meta`, which already has three write sites. It travels in
+  the export and in both import paths.
+
+`test_sessions` runs a scripted sitting (home, 180 s of trophies, reading with a
+120 s stall and a studied miss, the parent dashboard, a 2-minute hide, a
+Tier-Blitz round, then a 10-minute lock mid-question) and checks every column
+against the script. Verified failing on the build before, and against three
+deliberately broken builds: trophies counted as practice, hidden time booked on
+return, parent time inside Dauer.
 
 ### Fehlerarten — four mechanisms, four remedies
 
@@ -1031,5 +1091,5 @@ updates itself".
 ## Storage
 
 Keys: `sr.de`, `sr.en` (per-language progress), `sr.meta` (settings), `sr.ach`
-(achievements). Dual-mode by design — `window.storage` inside a Claude artifact,
+(achievements), `sr.sess` (sittings for the dashboard). Dual-mode by design — `window.storage` inside a Claude artifact,
 `localStorage` when deployed standalone — so the same source runs in both hosts.
