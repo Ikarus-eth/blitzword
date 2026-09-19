@@ -605,6 +605,109 @@ Blocked days are listed greyed with their reason rather than hidden. A parent
 looking for yesterday needs to see that it is there and why it cannot be used;
 a missing row reads as the feature being broken.
 
+## Das Duell — a stake he can see, above the flash card
+
+His crowned stick figure on the left, a bandit on the right. Every correct
+answer lands a hit; every miss costs him a life. The bandit goes down in
+**7 hits**, the king in **3 lives**. Asked for directly: he wanted to be able
+to lose, and to lose below 70%.
+
+**The two numbers are the 70%.** A duel is a race, so which side is ahead on
+average is decided by `p/7` against `(1-p)/3`, and that crosses at exactly
+`p = 0.70`. Nothing else in the feature encodes the threshold — change either
+constant and the rule changes with it, which is why `test_duel` asserts both
+from the DOM rather than asserting some derived rate.
+
+**Why a race and not an end-of-round accuracy check.** "Finish the round above
+70%" was the first shape and it is wrong, for the reason already written into
+this file about the ⏱ timer: it has a dead state. Once he is far enough down,
+90% of the way through a round, the threshold is unreachable and **every
+remaining answer of that round pays nothing** — the same perverse incentive as
+a timer that made error-heavy sessions longer, arriving by a different door. It
+also hands him an escape that pays: when a round is lost, restart it. A race has
+neither. The next correct answer is always a hit, and a lost duel is replaced by
+a fresh bandit on the next answer.
+
+Measured against the real build (`tools/sim_duel.mjs`, which first replays
+110 answers through the actual bundle and compares hp/lives after every single
+answer against its model, then sweeps that model over 200k duels a row):
+
+| his accuracy | he wins | he dies | clean win | answers/duel |
+|---|---|---|---|---|
+| 0.65 | 34% | 67% | 5% | 7.0 |
+| 0.70 | 46% | 54% | 8% | 7.3 |
+| 0.75 | 60% | 40% | 14% | 7.6 |
+| 0.80 | 74% | 26% | 21% | 7.7 |
+| 0.85 | 86% | 14% | 32% | 7.8 |
+
+A duel is about 7.7 answers, so roughly **4 duels in a ten-minute sitting**. At
+80% that is three wins and one death a sitting, with a clean win about every
+fifth duel. The threshold is genuinely a threshold: 20 points of accuracy moves
+him from losing most duels to winning six in seven.
+
+**This is the one number that decides whether the feature motivates or
+demoralises, and it is not yet known.** The figure recorded above for the
+18 Sep export is 66% on his unfinished English words, and at 0.65 he loses two
+duels in three. If the next export shows him near that, the dial is
+`DUEL_LIVES`: 4 lives moves the break-even to 63.6%, 5 moves it to 58.3%. Move
+that constant, not the story, and re-run the sweep.
+
+**Losing costs nothing but the duel.** No coins, no badge, no word state, no day
+credit moves when the king goes down — "nothing is ever taken away" still holds
+exactly. That is also what makes the obvious escape worthless: tapping the house
+at one life saves nothing, because dying costs nothing. And because it costs
+nothing, the duel is **never reset anywhere** — not on a new round, not on the
+way back from the home screen, not between sessions. It is only ever cleared by
+being resolved. `test_duel` asserts a duel in progress survives a trip home; the
+variant that resets it in `startPlay` fails there and nowhere else.
+
+**The duel is what pays the streak bonus now.** The +5 at ten correct in a row
+used to be paid off `runRef`, and nothing on the play screen ever displayed that
+number. The duel displays its own. Two bonuses on almost the same quantity with
+only one of them visible is precisely how the ⏱ ring and the flame drifted
+apart, and that cost a real five-day streak; so the KO pays and the invisible
+one is gone. `runRef` still drives the 🔥 *Richtige in Folge* badge ladder,
+which is a true count of consecutive correct answers and is never shown during
+play, so there is no promise there to break.
+
+**The KO pays `mult`, the existing speed-and-accuracy multiplier**, and that is
+load-bearing rather than tidy. The duel itself is pure accuracy, so on its own
+it makes the turtle setting the best way to win one — a reward that quietly
+argues against the whole point of the app. A win worth 5 coins at turtle and 15
+at rocket puts the slider back on the other side of the trade. A clean win pays
+double. What it deliberately does **not** do is make the bandit tougher at slow
+speeds: the slider is his one difficulty control and a game that punishes him
+for using it is a game he cannot make easier when stuck.
+
+**Nothing in the band moves while the word is on screen.** `frozen` is passed
+from the stage, and every pose renders with its animation off through the
+fixation dot and the flash. The dot exists to put his gaze in the middle of the
+card before the word lands; a figure lunging beside it during a 250 ms flash is
+the same class of mistake as colouring the vowel in Vokal-Blitz, with the added
+cost that it lands inside the one window the exercise depends on. The band moves
+at the feedback stage and nowhere else. `test_duel` samples every frame where
+the tiles are hidden and requires all of them frozen.
+
+**A resolved duel stays up until the next answer**, rather than clearing on a
+timer. The KO and the king going down are the two moments the band is worth
+looking at, and this hands each of them the whole feedback stage plus the
+following fixation and flash without a single frame of motion during the word.
+It also leaves the loop's pacing completely alone: the 950 ms correct-answer
+hold is a deliberate rule, and a KO that needed a longer hold would have
+silently broken the flat sleeps in three existing tests by moving the tap that
+follows into the feedback stage.
+
+**No duel in turbo.** Turbo is forced ≤500 ms and its failures are already ruled
+not to demote anything; a duel there would either take a life for a miss the
+rest of the app forgives, or never take one at all, which hands out clean wins
+for free.
+
+**No new badges.** A new category would need exactly ten of them and a
+`CAT_NAMES` entry, and the duel resolves every ~8 answers while the existing
+perfect-round badges are per chunk. Two nearly-identical "perfect" ideas on
+different units is the drift this file keeps paying for. The chunk-end screen
+shows the round's score as `👑 wins : deaths 🗡` and nothing else changes.
+
 ## Tipp-Blitz — he writes the word instead of picking it
 
 Read off his export of 4 Sep: **87% of his 454 wrong answers are one wrong

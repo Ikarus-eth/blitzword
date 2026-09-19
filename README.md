@@ -76,6 +76,22 @@ prints `DONE` — same files, same pass rule, resumable.
   this file goes red again, check the record count separately from the
   anti-guessing assertions — those are not timing-dependent and a failure there is
   real. Do not loosen a threshold to make it quiet.
+- **`test_open_cap` is intermittently red on unmodified `main`, about 2 runs in
+  5.** Always the same assertion — "the parked slot rotates, one word at a
+  time", which bounds the distinct unfinished words served across two queue
+  builds at `CAP + 2`. It reports 11 against a bound of 10, and in every
+  observed failure the two extra words are `es` and `sie`. Measured 19 Sep
+  2026: 2 of 4 runs failed on the build at `6dacb22` with nothing changed, and
+  1 of 3 on the duel build, so it is not caused by whatever you are shipping —
+  check it against a stock build before spending an afternoon on it. All the
+  single-queue assertions in that file pass every run; only the two-build bound
+  trips. **Do not loosen `CAP + 2` to make it quiet** — the bound is the design
+  rule, and the same file's history says the first plausible-sounding
+  explanation for a flake here was the wrong one. Undiagnosed on purpose: the
+  candidates are a third queue build sneaking in when the test's flat 200 ms
+  post-tap wait lets an item be skipped (the exact mechanism that was wrong
+  about `test_animal_mix` until it was measured), or one build serving two
+  parked words. Neither has been measured yet.
 - **Never raise `DAY_GOAL` as a global constant.** The streak is derived, so a
   higher goal is judged against days already practised and wipes them. Every day
   in the 4 Sep export was between 601 and 659 s; a global 660 would have taken a
@@ -124,6 +140,15 @@ prints `DONE` — same files, same pass rule, resumable.
   `document.body` is enough); an untouched stretch past 30 s is idle by design.
   JSDOM takes ~0.3 s to render the trophy gallery and that is booked to the
   screen being left, so keep tolerances at a second, not at a frame.
+- **Never read a coin or day total out of `localStorage` right after an
+  answer.** The save is debounced, so the value that comes back is the total
+  from some earlier answer. `test_duel` first "measured" a clean duel win
+  paying 12 coins against 18 for a scrappy one — the reverse of the truth (45
+  against 33) — and the code was fine. Read the number off the screen.
+- **The duel's two constants are its rule.** `DUEL_HP = 7` against
+  `DUEL_LIVES = 3` is what puts the win/lose break-even at 70% accuracy; the
+  algebra is in DESIGN. Changing either without re-running
+  `tools/sim_duel.mjs` changes the threshold he plays against silently.
 - **`meta` has three write sites** — the export object, the debounced save and
   `flush()`. A field added to one and not the others survives until a device move
   and then vanishes. That is how the badge case was wiped once.

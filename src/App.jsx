@@ -181,6 +181,32 @@ const OPEN_CAP = 8;
 const TIER = ["🐢", "🏃", "🚀"];
 const CHUNK_SEC = 150;   // active seconds per chunk (~2.5 min)
 const CHUNK_Q = 50;      // hard cap on questions per chunk
+
+/* ------------------------------- the duel -------------------------------
+   A crowned stick figure of his against a bandit, above the flash card.
+   Every correct answer lands a hit; every miss costs him one life. The
+   bandit goes down in DUEL_HP hits, the king in DUEL_LIVES.
+
+   The two numbers are not decoration. The duel is a race, so which side is
+   ahead on average is decided by p/DUEL_HP against (1-p)/DUEL_LIVES, and 7
+   against 3 puts that break-even at exactly p = 0.70. Below 70% he loses
+   duels, above it he wins them, which is the rule as asked for.
+
+   It is a race and not an end-of-round accuracy audit, and that is the
+   whole design. "Finish the round above 70%" has a dead state: once he is
+   far enough down it is unreachable, and every remaining answer of that
+   round pays nothing. That is the same shape as the timer that used to make
+   error-heavy sessions longer, recorded below as a perverse incentive and a
+   bug. A race has no such point — the next correct answer is always a hit,
+   and a lost duel is replaced by a fresh bandit on the next answer.
+
+   Losing costs nothing but the duel: no coins, no badge, no word state
+   moves when the king goes down, so "nothing is ever taken away" still
+   holds. That is also what makes the obvious escape worthless — tapping the
+   house at one life saves nothing, because dying costs nothing. */
+const DUEL_HP = 7;
+const DUEL_LIVES = 3;
+const freshDuel = () => ({ hp: DUEL_HP, lives: DUEL_LIVES, evt: "" });
 const STR = {
   de: { newLvl: "Neue Stufe!", cont: "Weiter", lvl: "Stufe", newWords: "Neue Wörter!", today: "heute", ach: "Abzeichen!", achDone: "Geschafft am", achLocked: "Noch nicht geschafft" },
   en: { newLvl: "New level!", cont: "Go on", lvl: "Level", newWords: "New words!", today: "today", ach: "Achievement!", achDone: "Achieved on", achLocked: "Not yet achieved" }
@@ -2136,7 +2162,18 @@ const sfx = {
     [523, 659, 784, 1047, 1319, 1568].forEach((f, i) => tone(f, i * 0.055, 0.11, "square", 0.08));
     glide(1600, 2300, 0.36, 0.16, "sine", 0.07);
     glide(2300, 1500, 0.54, 0.16, "sine", 0.07);
-  }
+  },
+  /* duel: a win, a clean win, and the king going down. The last one is
+     deliberately the gentle descending shape of `oof` and not a harsher
+     noise — he has just missed a word, the screen is holding that word for
+     him to look at, and the sound is not the place to make the loss bigger
+     than it is. */
+  ko:   () => { [523, 659, 784, 1047].forEach((f, i) => tone(f, i * 0.06, 0.15, "triangle", 0.11)); tone(150, 0.12, 0.3, "triangle", 0.08); },
+  ko0:  () => {
+    [523, 659, 784, 1047, 1319].forEach((f, i) => tone(f, i * 0.05, 0.13, "square", 0.085));
+    glide(1500, 2200, 0.3, 0.18, "sine", 0.07);
+  },
+  dead: () => glide(300, 75, 0.06, 0.5, "triangle", 0.08)
 };
 /* voiceURIs: {de: uri, en: uri} of a parent-picked voice, if any —
    iOS gives no programmatic way to tell a compact voice from a
@@ -2284,6 +2321,9 @@ const css = `
 @keyframes bwFloat { 0% { transform: translateY(0); opacity: 1; } 100% { transform: translateY(-64px); opacity: 0; } }
 @keyframes bwFall { 0% { transform: translateY(-10vh) rotate(0deg); } 100% { transform: translateY(110vh) rotate(560deg); } }
 @keyframes bwBreathe { 0%,100% { transform: scale(1); } 50% { transform: scale(1.07); } }
+@keyframes bwLunge { 0%,100% { transform: translateX(0); } 45% { transform: translateX(11px); } }
+@keyframes bwHurt { 0%,100% { transform: translateX(0) rotate(0deg); } 30% { transform: translateX(-8px) rotate(-9deg); } 65% { transform: translateX(3px) rotate(4deg); } }
+@keyframes bwKO { 0% { transform: rotate(0deg); } 60% { transform: rotate(84deg); } 100% { transform: rotate(72deg); } }
 input[type=range].spd { -webkit-appearance: none; appearance: none; width: 100%; height: 16px; border-radius: 10px; background: #D6E4F2; outline: none; margin: 0; }
 input[type=range].spd::-webkit-slider-thumb { -webkit-appearance: none; width: 48px; height: 48px; border-radius: 50%; background: ${C.blue}; border: 5px solid #fff; box-shadow: 0 3px 10px rgba(34,49,74,.35); cursor: pointer; }
 .tile:active { transform: scale(.96); }
@@ -2321,6 +2361,106 @@ function DayRing({ day, size = 48 }) {
         ? <span style={{ fontSize: size * 0.42 }}>🔥</span>
         : <span style={{ fontSize: size * 0.3, fontWeight: 900 }}>{pct}%</span>}
     </Ring>
+  );
+}
+/* --------------------------- the duel band ---------------------------
+   Drawn here rather than imported: two stick figures are a few paths, and
+   an asset would be one more thing to cache-bust on every icon change.
+
+   `frozen` is why this is a component and not three divs. While the
+   fixation dot and the word are on screen every pose renders with its
+   animation off. The dot is there to put his gaze in the middle of the
+   card before the word lands, and a figure moving beside it at that moment
+   is exactly the salient irrelevant cue that Vokal-Blitz refuses to give
+   him — with the added cost here that it would be moving during the one
+   150-to-7500 ms window the whole exercise depends on. */
+function Stick({ kind, pose }) {
+  const king = kind === "king";
+  const limb = king ? C.blue : "#6B7280";
+  const down = pose === "down";
+  const anim = pose === "lunge" ? "bwLunge .3s ease-out"
+    : pose === "hurt" ? "bwHurt .34s ease-out"
+    : down ? "bwKO .42s ease-in" : "none";
+  const ec = down && !king ? "#fff" : C.ink;
+  return (
+    <div style={{ width: 54, height: 58, flexShrink: 0, transform: king ? "none" : "scaleX(-1)" }}>
+      <svg viewBox="0 0 52 58" width="54" height="58" aria-hidden="true"
+        style={{
+          display: "block", overflow: "visible", transformOrigin: "50% 92%",
+          transform: down ? "rotate(72deg)" : "none", animation: anim
+        }}>
+        <g stroke={limb} strokeWidth="3.4" strokeLinecap="round" fill="none">
+          <path d="M26 24 L26 38" />
+          <path d="M26 38 L19 52 M26 38 L33 52" />
+          <path d="M26 28 L17 34" />
+          <path d="M26 27 L38 22" />
+        </g>
+        <path d="M38 22 L50 13" stroke="#9AA7B6" strokeWidth="3" strokeLinecap="round" />
+        <path d="M36 25.5 L40.5 18.5" stroke={C.ink} strokeWidth="2.4" strokeLinecap="round" />
+        <circle cx="26" cy="15" r="8" fill={king ? "#FFE9B0" : "#E7C9A9"} stroke={C.ink} strokeWidth="3" />
+        {king
+          ? <path d="M17 7.5 L19 1.5 L23 5.5 L26 0.5 L29 5.5 L33 1.5 L35 7.5 Z"
+              fill={C.gold} stroke={C.ink} strokeWidth="2.2" strokeLinejoin="round" />
+          : <g>
+              <path d="M17.5 10 Q26 0 34.5 10 Z" fill="#3A4353" stroke={C.ink} strokeWidth="2.2" strokeLinejoin="round" />
+              <path d="M13.5 10.5 L38.5 10.5" stroke={C.ink} strokeWidth="3" strokeLinecap="round" />
+              <rect x="18" y="12" width="16" height="5.4" rx="2.2" fill="#22314A" />
+            </g>}
+        {(king || down) && (down
+          ? <g stroke={ec} strokeWidth="2.2" strokeLinecap="round">
+              <path d="M21 12.5 l3.4 3.4 M24.4 12.5 l-3.4 3.4" />
+              <path d="M28 12.5 l3.4 3.4 M31.4 12.5 l-3.4 3.4" />
+            </g>
+          : <g fill={C.ink}><circle cx="23" cy="14.6" r="1.35" /><circle cx="30" cy="14.6" r="1.35" /></g>)}
+      </svg>
+    </div>
+  );
+}
+/* Hearts for him, a bar of blocks for the bandit. Both are countable at a
+   glance — "two more hits" is a thing he can see without reading, which is
+   the same requirement every other display in this app is built to. */
+function Pips({ n, max, kind }) {
+  return (
+    <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+      {Array.from({ length: max }, (_, i) => (i < n
+        ? (kind === "heart"
+            ? <span key={i} style={{ fontSize: 19, lineHeight: 1 }}>❤️</span>
+            : <span key={i} style={{ width: 10, height: 21, borderRadius: 4, background: "#6B7280", border: `2px solid ${C.ink}` }} />)
+        : (kind === "heart"
+            ? <span key={i} style={{ fontSize: 19, lineHeight: 1, opacity: 0.25, filter: "grayscale(1)" }}>❤️</span>
+            : <span key={i} style={{ width: 10, height: 21, borderRadius: 4, background: "transparent", border: `2px solid rgba(34,49,74,.28)` }} />)
+      ))}
+    </div>
+  );
+}
+function DuelBand({ d, frozen }) {
+  const kingOut = d.lives <= 0, banditOut = d.hp <= 0;
+  const e = frozen ? "" : d.evt;
+  const hitting = e === "hit" || e === "ko" || e === "ko0";
+  const taking = e === "hurt" || e === "dead";
+  const kPose = kingOut ? "down" : taking ? "hurt" : hitting ? "lunge" : "idle";
+  const bPose = banditOut ? "down" : taking ? "lunge" : hitting ? "hurt" : "idle";
+  const mid = banditOut ? "🏆" : kingOut ? "💫" : hitting ? "💥" : taking ? "💢" : "⚔️";
+  return (
+    <div data-duel="1" data-duel-hp={d.hp} data-duel-lives={d.lives}
+      data-duel-maxhp={DUEL_HP} data-duel-maxlives={DUEL_LIVES}
+      data-duel-evt={d.evt || ""} data-duel-frozen={frozen ? 1 : 0}
+      data-duel-pose={kPose}
+      style={{
+        alignSelf: "center", width: "min(94vw,720px)", height: "clamp(58px,10vh,74px)",
+        flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-between",
+        gap: 10, padding: "0 4px"
+      }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+        <Stick kind="king" pose={kPose} />
+        <Pips n={d.lives} max={DUEL_LIVES} kind="heart" />
+      </div>
+      <div style={{ fontSize: 27, lineHeight: 1 }}>{mid}</div>
+      <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+        <Pips n={d.hp} max={DUEL_HP} kind="bar" />
+        <Stick kind="bandit" pose={bPose} />
+      </div>
+    </div>
   );
 }
 /* One band of one animal, cut out of the single drawing with the viewBox —
@@ -2578,6 +2718,9 @@ export default function App() {
   const idxRef = useRef(0);
   const rollRef = useRef([]);
   const runRef = useRef(0);
+  /* The duel outlives rounds, languages and trips back to the home screen on
+     purpose — see freshDuel. It is only ever reset by being resolved. */
+  const duelRef = useRef(freshDuel());
   const tilesAt = useRef(0);
   const spanAt = useRef(0);       // start of the current active-time span (see span())
   const pendingLvl = useRef(null);
@@ -2587,7 +2730,7 @@ export default function App() {
      seen on the way out. Toggling to English and back must not clear the stars
      on badges he never scrolled to. */
   const achViewed = useRef(new Set());
-  const chunkRef = useRef({ q: 0, right: 0, coins: 0, sec: 0, mast: [], reach0: 1 });
+  const chunkRef = useRef({ q: 0, right: 0, coins: 0, sec: 0, mast: [], reach0: 1, ko: 0, ko0: 0, died: 0 });
   const modeRef = useRef({ t: "normal", lvl: 0 });
   const pendingGold = useRef(null);
   /* Sessions (see sessAdvance). Refs rather than state: every touch passes
@@ -2782,6 +2925,7 @@ export default function App() {
   const startChunk = () => {
     const ch = chunkRef.current;
     ch.q = 0; ch.right = 0; ch.coins = 0; ch.sec = 0; ch.mast = [];
+    ch.ko = 0; ch.ko0 = 0; ch.died = 0;
     trk.current.missAt = 0;
     ch.reach0 = reachLevel(dataRef.current[langRef.current], LISTS[langRef.current]);
     rollRef.current = []; runRef.current = 0; pendingLvl.current = null; pendingGold.current = null;
@@ -3184,6 +3328,19 @@ export default function App() {
     const active = span(spanAt);
     rollRef.current = [...rollRef.current, ok].slice(-10);
 
+    /* A resolved duel stays on screen until the next answer lands. The KO and
+       the king going down are the two moments the band is worth looking at,
+       and clearing them here hands each one the whole feedback stage plus the
+       following fixation and flash — with not one frame of motion while the
+       word is up, and without touching the loop's pacing. The 950 ms
+       correct-answer hold is a deliberate rule and not this feature's to
+       change; a KO that needed a longer hold would also have broken the flat
+       sleeps in three existing tests, silently, by moving the tap that
+       follows into the feedback stage. */
+    let du = duelRef.current;
+    if (!turbo && (du.hp <= 0 || du.lives <= 0)) { du = freshDuel(); duelRef.current = du; }
+    let dEvt = "";
+
     const prev = dataRef.current;
     const L = clone(prev[lang]);
     const list = LISTS[lang];
@@ -3225,7 +3382,29 @@ export default function App() {
       earned += mult;
       runRef.current++;
       if (runRef.current > achRef.current[lang].bestStreak) achRef.current = setBook(achRef.current, lang, { bestStreak: runRef.current });
-      if (runRef.current % 10 === 0) earned += 5;        // streak bonus
+      /* The +5 at ten in a row used to be paid here, off `runRef`, and nothing
+         on the play screen ever displayed that number. The duel does display
+         its own, so the duel is what pays. Two bonuses on almost the same
+         quantity with only one of them visible is how the ⏱ ring and the flame
+         drifted apart, and that cost a real five-day streak. `runRef` still
+         drives the 🔥 badge ladder, which is a true count of consecutive
+         correct answers and is never shown during play.
+
+         The KO pays `mult`, the existing speed-and-accuracy multiplier, for a
+         reason worth keeping: the duel itself is pure accuracy, so on its own
+         it would make the turtle setting the best way to win. Paying the win
+         at 5 coins on turtle and 15 on rocket puts the slider back on the
+         other side of the trade. */
+      if (!turbo) {
+        du.hp--; dEvt = "hit";
+        if (du.hp <= 0) {
+          const flawless = du.lives === DUEL_LIVES;
+          dEvt = flawless ? "ko0" : "ko";
+          earned += (flawless ? 10 : 5) * mult;
+          chunkRef.current.ko++;
+          if (flawless) chunkRef.current.ko0++;
+        }
+      }
     } else {
       ws.wr++;
       ws.mx = ws.mx || {}; ws.mx[w] = (ws.mx[w] || 0) + 1;   // which distractor fooled him
@@ -3235,6 +3414,10 @@ export default function App() {
         ws.due = plusDays(1);                            // resurfaces tomorrow
       }
       runRef.current = 0;
+      if (!turbo) {
+        du.lives--; dEvt = "hurt";
+        if (du.lives <= 0) { dEvt = "dead"; chunkRef.current.died++; }
+      }
       const pos = Math.min(queueRef.current.length, idxRef.current + 3 + Math.floor(Math.random() * 4));
       queueRef.current.splice(pos, 0, cur);              // re-queue 3–6 later
     }
@@ -3263,7 +3446,14 @@ export default function App() {
     setData(newData);
     scheduleSave(lang);
     runAchCheck(newData);
-    if (sndRef.current) { ok ? ((bonus || mastered) ? sfx.bonus() : sfx.ok()) : sfx.no(); }
+    du.evt = dEvt;
+    if (sndRef.current) {
+      if (!ok) (dEvt === "dead" ? sfx.dead() : sfx.no());
+      else if (dEvt === "ko0") sfx.ko0();
+      else if (dEvt === "ko") sfx.ko();
+      else if (bonus || mastered) sfx.bonus();
+      else sfx.ok();
+    }
     setFb({ ok, chosen: w, earned, mastered });
     setStage("fb");
   };
@@ -4849,6 +5039,12 @@ export default function App() {
           <div style={{ ...cardSt, padding: "10px 20px", fontSize: 22, fontWeight: 800, borderRadius: 18, color: "#8A5A00", background: "#FFF3D6" }}>
             +{ch.coins} 🪙
           </div>
+          {(ch.ko + ch.died) > 0 && (
+            <div data-chunk-ko={ch.ko} data-chunk-ko0={ch.ko0} data-chunk-died={ch.died}
+              style={{ ...cardSt, padding: "10px 20px", fontSize: 22, fontWeight: 800, borderRadius: 18 }}>
+              👑 {ch.ko} : {ch.died} 🗡
+            </div>
+          )}
           <DayRing day={todayRec} size={60} />
         </div>
         {dir !== 0 && !nudged && (
@@ -4931,6 +5127,14 @@ export default function App() {
           <span data-streak-play="1" data-streak={streak} style={{ fontSize: 21, fontWeight: 800 }}>🔥{streak}</span>
         </div>
       </div>
+
+      {/* the duel — normal play only. Turbo is forced ≤500 ms and its failures
+          are ruled not to demote anything; a duel there would either take
+          lives for a miss the rest of the app forgives, or never collapse at
+          all, which would hand out clean wins for free. */}
+      {modeRef.current.t !== "turbo" && (
+        <DuelBand d={duelRef.current} frozen={stage === "fix" || stage === "word"} />
+      )}
 
       {/* flash card */}
       <div style={{
