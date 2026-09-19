@@ -145,10 +145,29 @@ prints `DONE` — same files, same pass rule, resumable.
   from some earlier answer. `test_duel` first "measured" a clean duel win
   paying 12 coins against 18 for a scrappy one — the reverse of the truth (45
   against 33) — and the code was fine. Read the number off the screen.
-- **The duel's two constants are its rule.** `DUEL_HP = 7` against
-  `DUEL_LIVES = 3` is what puts the win/lose break-even at 70% accuracy; the
-  algebra is in DESIGN. Changing either without re-running
-  `tools/sim_duel.mjs` changes the threshold he plays against silently.
+- **The duel's numbers are its rule.** Each opponent in `FOES` sets a
+  break-even at `hits/(hits+lives)`, and `LADDER_UP`/`LADDER_DOWN` decide
+  which one he meets. Both were set by measurement, not by choice — see
+  DESIGN. Changing any of them without re-running `tools/sim_duel.mjs
+  --ladder` changes the difficulty he plays against silently.
+- **Write to `achRef.current` BEFORE `runAchCheck`, never after.**
+  `achRef.current` is reassigned from the `ach` state on every render, and
+  `runAchCheck` is the only thing that calls `setAch` and persists. A write
+  after it is erased by the next render: the duel band showed 7 hit points
+  for seven correct answers in a row, with no error anywhere. Badges that
+  depend on the write also need it to land first, or they fire one answer
+  late.
+- **`earned` and the speed multiplier only exist inside the ok/miss branches
+  of `answer()`.** A block placed above them that uses either compiles fine,
+  minifies into a hoisted binding, and throws `Cannot access 'tn' before
+  initialization` from inside a React render — eight times, mid-duel, under a
+  minified name that names nothing. If a new feature needs the payout, put it
+  after both branches and carry the multiplier out in a variable.
+- **Never put a readable word in a `<span>` on the play screen.** Every test
+  finds the flashed word by taking the first `<span>` of plain letters outside
+  a button. The duel's opponent name sits earlier in the DOM than the flash
+  card, and as a span it made the whole suite answer the word "Bandit". It is
+  a `<div>` for that reason.
 - **`meta` has three write sites** — the export object, the debounced save and
   `flush()`. A field added to one and not the others survives until a device move
   and then vanishes. That is how the badge case was wiped once.

@@ -612,11 +612,14 @@ answer lands a hit; every miss costs him a life. The bandit goes down in
 **7 hits**, the king in **3 lives**. Asked for directly: he wanted to be able
 to lose, and to lose below 70%.
 
-**The two numbers are the 70%.** A duel is a race, so which side is ahead on
-average is decided by `p/7` against `(1-p)/3`, and that crosses at exactly
-`p = 0.70`. Nothing else in the feature encodes the threshold — change either
-constant and the rule changes with it, which is why `test_duel` asserts both
-from the DOM rather than asserting some derived rate.
+**The two numbers are the threshold.** A duel is a race, so which side is
+ahead on average is decided by `p/hits` against `(1-p)/lives`, which crosses at
+`hits/(hits+lives)`. The Bandit's 7 and 3 put that at exactly `p = 0.70`, the
+figure asked for, and the Bandit is where a new book starts. Nothing else in
+the feature encodes a threshold — change a pair and the rule changes with it,
+which is why `test_duel` asserts them from the DOM rather than asserting some
+derived rate. The other four opponents are the same arithmetic at other
+accuracies; see the ladder below.
 
 **Why a race and not an end-of-round accuracy check.** "Finish the round above
 70%" was the first shape and it is wrong, for the reason already written into
@@ -661,6 +664,13 @@ way back from the home screen, not between sessions. It is only ever cleared by
 being resolved. `test_duel` asserts a duel in progress survives a trip home; the
 variant that resets it in `startPlay` fails there and nowhere else.
 
+That is why the duel lives in the achievements book and not in a ref. It was a
+ref for exactly one commit, which meant closing the app was the cheapest way out
+of a duel going badly — a reload started a fresh one. The book is written by
+`runAchCheck`, which persists on every answer, so the rung, the hit points, the
+lives, the records and the rematch mark all survive a restart. Only the pose
+stays in memory.
+
 **The duel is what pays the streak bonus now.** The +5 at ten correct in a row
 used to be paid off `runRef`, and nothing on the play screen ever displayed that
 number. The duel displays its own. Two bonuses on almost the same quantity with
@@ -670,14 +680,16 @@ one is gone. `runRef` still drives the 🔥 *Richtige in Folge* badge ladder,
 which is a true count of consecutive correct answers and is never shown during
 play, so there is no promise there to break.
 
-**The KO pays `mult`, the existing speed-and-accuracy multiplier**, and that is
-load-bearing rather than tidy. The duel itself is pure accuracy, so on its own
-it makes the turtle setting the best way to win one — a reward that quietly
-argues against the whole point of the app. A win worth 5 coins at turtle and 15
-at rocket puts the slider back on the other side of the trade. A clean win pays
-double. What it deliberately does **not** do is make the bandit tougher at slow
-speeds: the slider is his one difficulty control and a game that punishes him
-for using it is a game he cannot make easier when stuck.
+**The KO pays `4 + 2 x rung`, times the existing speed-and-accuracy
+multiplier**, and both halves are load-bearing rather than tidy. The speed term:
+the duel is pure accuracy, so on its own it makes the turtle setting the best way
+to win one, a reward that quietly argues against the whole point of the app. The
+rung term: without it, deliberately losing twice to drop onto the Goblin would be
+the best-paid way to play, and a competitive child finds that. A Goblin is worth
+4, a Dragon 12, and a clean win doubles it. What the payout deliberately does
+**not** do is make an opponent tougher at slow speeds: the slider is his one
+difficulty control and a game that punishes him for using it is a game he cannot
+make easier when stuck.
 
 **Nothing in the band moves while the word is on screen.** `frozen` is passed
 from the stage, and every pose renders with its animation off through the
@@ -702,11 +714,81 @@ not to demote anything; a duel there would either take a life for a miss the
 rest of the app forgives, or never take one at all, which hands out clean wins
 for free.
 
-**No new badges.** A new category would need exactly ten of them and a
-`CAT_NAMES` entry, and the duel resolves every ~8 answers while the existing
-perfect-round badges are per chunk. Two nearly-identical "perfect" ideas on
-different units is the drift this file keeps paying for. The chunk-end screen
-shows the round's score as `👑 wins : deaths 🗡` and nothing else changes.
+**The chunk-end screen** shows the round's score as `👑 wins : deaths 🗡`, plus
+the record he is actually chasing: the best opponent he has ever beaten, and who
+is next.
+
+## The ladder — five opponents, and why the rung is a measurement
+
+Goblin 8/5, Bandit 7/3, Troll 10/3, Giant 9/2, Dragon 12/2. Break-evens 0.615,
+0.700, 0.769, 0.818, 0.857. Climb on three straight wins, drop on two straight
+deaths. A new book starts on the Bandit, because that is what shipped and a
+child already fighting one does not get moved.
+
+**The ladder is not variety.** Two things fall out of it that the flat duel
+could not do.
+
+First, the rung he settles on is a measurement. He stops climbing where a
+rung's break-even passes his accuracy, so the opponent on screen reports how he
+reads without anyone running an export. That also answers the open question the
+flat duel left behind — whether 7/3 was too hard for him at 66% — by making it
+self-correcting instead of a constant somebody has to guess right.
+
+Second, it closes the slider exploit. The duel is pure accuracy, so slowing down
+raises his win rate; but winning climbs him, and climbing raises the bar until
+the win rate comes back to even. Turtle speed buys him a Dragon, not a run of
+wins. The coin payout still pays fast play more.
+
+**Three-up, two-down is measured, not chosen.** The first version was
+two-up/two-down and the simulation rejected it:
+
+| rule | time on his own rung | 2+ rungs above | win rate |
+|---|---|---|---|
+| 2 up / 2 down | 48-61% in the middle of the range | up to 14% | 37-66% |
+| **3 up / 2 down** | **70-92% at every accuracy 0.60-0.90** | **under 3%** | **41-68%** |
+| 2 up / 1 down | good low, 61% at 0.85 | ~1% | up to 75%, a rout |
+| 3 up / 1 down | collapses to 46% at 0.85 | 0% | up to 80%, a rout |
+
+The failure mode that matters is not the average, it is the run: at
+two-up/two-down he spent five or six duels at a time stuck two rungs above
+himself, which is fifty answers of losing. `tools/sim_duel.mjs --ladder`
+reproduces the whole table; re-run it before touching either constant.
+
+**Dropping is silent.** The opponent simply changes — no demotion screen, no
+message. A visible demotion would hurt a competitive child more than a death
+does, and the signal is already there: a Goblin looks like a Goblin. What he
+sees instead is the ratchet, "best beaten", which only ever goes up.
+
+**The rematch.** The opponent that kills him is marked (`dRev`), and the mark
+shows as 🔁 and a red name whenever he faces that one again, until he beats it.
+It survives dropping a rung, so the Troll that killed him is still marked when
+he climbs back. Nothing is taken away by it and nothing is gated behind it; it
+exists because "that one beat me" is the thing a competitive seven-year-old will
+actually want to settle.
+
+**Gear is cosmetic, and that is a rule.** Lifetime wins give him a golden sword
+at 5, a cape at 15, jewels in the crown at 30, armour at 60. None of it touches
+hit points, lives or the payout. Gear that made him harder to kill would make
+winning easier the more he won, and the cheapest route to it would be the turtle
+setting — the exact trade the ladder exists to close. `test_duel_ladder` asserts
+the fight numbers are unchanged across a gear step.
+
+**Ten duel badges**, because a category with any other number breaks the header
+total `test_minigame_awards` asserts, and one without a `CAT_NAMES` entry blanks
+the whole trophy screen. Five are the five opponents, which makes the ladder
+collectable; the rest are First Win, Untouched, Revenge, Five in a Row and 50
+Duels.
+
+**English in both galleries, deliberately.** The interface is otherwise in the
+selected language, and this breaks that rule on request: the opponents are
+proper names, he is learning to read both languages, and a Drache that turns
+into a Dragon when the language flips makes the ladder harder to talk about at
+the table. The badge records still keep their `de`/`en` fields, with the same
+English text in each, because the gallery machinery requires the pair.
+
+**Per language, like the gallery it feeds.** His German and his English are
+different accuracies, so they are different ladders, different rungs, different
+records. A single shared ladder would sit between the two and measure neither.
 
 ## Tipp-Blitz — he writes the word instead of picking it
 

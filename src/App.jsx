@@ -204,9 +204,57 @@ const CHUNK_Q = 50;      // hard cap on questions per chunk
    moves when the king goes down, so "nothing is ever taken away" still
    holds. That is also what makes the obvious escape worthless — tapping the
    house at one life saves nothing, because dying costs nothing. */
-const DUEL_HP = 7;
-const DUEL_LIVES = 3;
-const freshDuel = () => ({ hp: DUEL_HP, lives: DUEL_LIVES, evt: "" });
+/* Five opponents, each the same two numbers in a different pair, so a rung's
+   break-even is just hits/(hits+lives). Bandit is the start: it is what
+   shipped, and a child already fighting one does not get moved.
+
+   The ladder is not variety. The rung he settles on is a measurement of how
+   he reads — he stops climbing where a rung's break-even passes his accuracy
+   — and it closes the one exploit the flat duel had. Slowing the slider to
+   win raises his accuracy, which climbs him into a harder opponent until the
+   win rate comes back to even. Turtle speed buys him a dragon, not a run of
+   wins. */
+const FOES = [
+  { id: "goblin", name: "Goblin", hp: 8,  lives: 5, scale: 0.86, skin: "#9BC97A", limb: "#5E8B45", head: "ears",  arm: "sword" },
+  { id: "bandit", name: "Bandit", hp: 7,  lives: 3, scale: 1.00, skin: "#E7C9A9", limb: "#6B7280", head: "mask",  arm: "sword" },
+  { id: "troll",  name: "Troll",  hp: 10, lives: 3, scale: 1.12, skin: "#9AA98C", limb: "#5C6B57", head: "horns", arm: "club" },
+  { id: "giant",  name: "Giant",  hp: 9,  lives: 2, scale: 1.22, skin: "#D9A87C", limb: "#7A5C3E", head: "beard", arm: "club" },
+  { id: "dragon", name: "Dragon", hp: 12, lives: 2, scale: 1.26, skin: "#86CE92", limb: "#2F7D4F", head: "snout", arm: "claw" }
+];
+const foeOf = (r) => FOES[Math.max(0, Math.min(FOES.length - 1, r | 0))];
+const breakEven = (f) => f.hp / (f.hp + f.lives);
+
+/* Climb on three straight wins, drop on two straight deaths. Measured, not
+   chosen: at 2-up/2-down he spent only 48-61% of duels on the rung matching
+   his reading and ran 5-6 duels at a time stuck above it. 3-up/2-down holds
+   him at home 70-92% of the time at every accuracy from 0.60 to 0.90, keeps
+   time spent two rungs above under 3%, and leaves the win rate between 41%
+   and 68% — always a contest, never a rout. tools/sim_duel.mjs --ladder
+   reproduces the table; re-run it before touching either number. */
+const LADDER_UP = 3;
+const LADDER_DOWN = 2;
+
+/* His figure earns gear by lifetime wins. Cosmetic only, and that is a rule
+   rather than laziness: gear that made him harder to kill would make winning
+   easier the more he won, and the cheapest route to it would be the turtle
+   setting — the exact trade the ladder exists to close. */
+const GEAR = [0, 5, 15, 30, 60];
+const gearOf = (wins) => GEAR.reduce((g, n, i) => (wins >= n ? i : g), 0);
+
+const duelOf = (b) => {
+  const rung = b.dRung == null ? 1 : b.dRung;
+  const f = foeOf(rung);
+  return {
+    rung, foe: f,
+    hp: b.dHp == null ? f.hp : b.dHp,
+    lives: b.dLives == null ? f.lives : b.dLives,
+    clean: b.dClean !== false,
+    rev: b.dRev == null ? -1 : b.dRev,
+    wins: b.dWins || 0,
+    run: b.dRun || 0,
+    best: Object.keys(b.dSlain || {}).reduce((m, k) => Math.max(m, +k), -1)
+  };
+};
 const STR = {
   de: { newLvl: "Neue Stufe!", cont: "Weiter", lvl: "Stufe", newWords: "Neue Wörter!", today: "heute", ach: "Abzeichen!", achDone: "Geschafft am", achLocked: "Noch nicht geschafft" },
   en: { newLvl: "New level!", cont: "Go on", lvl: "Level", newWords: "New words!", today: "today", ach: "Achievement!", achDone: "Achieved on", achLocked: "Not yet achieved" }
@@ -1688,9 +1736,10 @@ const CAT_NAMES = {
   vowel: ["Vokal-Blitz", "Vowel Blitz"],
   letters: ["Buchstaben-Blitz", "Letter Blitz"],
   mix: ["Tier-Blitz", "Animal Blitz"],
-  type: ["Tipp-Blitz", "Type Blitz"]
+  type: ["Tipp-Blitz", "Type Blitz"],
+  duel: ["Duel", "Duel"]
 };
-const CAT_ORDER = ["start", "streak", "volume", "mastery", "minutes", "days", "speed", "reach", "star", "gold", "vowel", "letters", "mix", "type"];
+const CAT_ORDER = ["start", "streak", "volume", "mastery", "minutes", "days", "speed", "reach", "star", "gold", "vowel", "letters", "mix", "type", "duel"];
 
 /* factory for a straight numeric-threshold ladder, DRYs out 8 of the
    10 categories which are otherwise near-identical boilerplate.
@@ -1930,7 +1979,37 @@ const ACHIEVEMENTS = [
   { id: "n10", cat: "type", icon: "\u{1F393}", de: "Tipp-Meister", en: "Type Master",
     deDesc: "Erreiche 90% richtig geschriebene W\u00f6rter im Tipp-Blitz \u2014 \u00fcber mindestens 100 W\u00f6rter gerechnet.",
     enDesc: "Reach 90% correct in Type Blitz \u2014 measured over at least 100 words.",
-    check: (S) => S.tTotal >= 100 && S.tCorrect / S.tTotal >= 0.9 }
+    check: (S) => S.tTotal >= 100 && S.tCorrect / S.tTotal >= 0.9 },
+
+  /* O — the duel. Ten, because a category with any other number breaks the
+     header total that test_minigame_awards asserts, and a category with no
+     CAT_NAMES entry blanks the whole trophy screen. Five of them are the five
+     opponents, which is the ladder made collectable; the rest are the things
+     worth doing that a win count alone would not reward. English titles in
+     both galleries, deliberately: the opponents are proper names and he is
+     reading both languages. */
+  { id: "o1", cat: "duel", icon: "\u{1F5E1}", de: "First Win", en: "First Win",
+    deDesc: "Win your first duel.", enDesc: "Win your first duel.",
+    check: (S) => S.dWins >= 1 },
+  ...FOES.map((f, i) => ({
+    id: `o${i + 2}`, cat: "duel", icon: ["\u{1F47A}", "\u{1F977}", "\u{1F479}", "\u{1F5FF}", "\u{1F409}"][i],
+    de: `${f.name} Slayer`, en: `${f.name} Slayer`,
+    deDesc: `Beat the ${f.name} (${f.hp} hits, ${f.lives} lives).`,
+    enDesc: `Beat the ${f.name} (${f.hp} hits, ${f.lives} lives).`,
+    check: (S) => !!S.dSlain[i]
+  })),
+  { id: "o7", cat: "duel", icon: "\u2728", de: "Untouched", en: "Untouched",
+    deDesc: "Win a duel without losing a single life.", enDesc: "Win a duel without losing a single life.",
+    check: (S) => S.dCleanWins >= 1 },
+  { id: "o8", cat: "duel", icon: "\u{1F501}", de: "Revenge", en: "Revenge",
+    deDesc: "Beat the enemy that beat you.", enDesc: "Beat the enemy that beat you.",
+    check: (S) => S.dRevenge >= 1 },
+  { id: "o9", cat: "duel", icon: "\u{1F525}", de: "Five in a Row", en: "Five in a Row",
+    deDesc: "Win five duels in a row.", enDesc: "Win five duels in a row.",
+    check: (S) => S.dBestRun >= 5 },
+  { id: "o10", cat: "duel", icon: "\u{1F3C6}", de: "50 Duels", en: "50 Duels",
+    deDesc: "Win fifty duels.", enDesc: "Win fifty duels.",
+    check: (S) => S.dWins >= 50 }
 ];
 
 /* Everything the checks read, for ONE language. Each language keeps its own
@@ -1968,6 +2047,14 @@ function computeStats(data, ach, lang, jok) {
     hadPerfectChunk: Object.keys(b.perfectSpeeds || {}).length > 0,
     chunksDone: b.chunksDone || 0,
     speedChanged: !!b.speedChanged,
+
+    /* the duel. Per language, like the gallery it feeds: his German and his
+       English are different accuracies, so they are different ladders. */
+    dWins: b.dWins || 0,
+    dCleanWins: b.dCleanWins || 0,
+    dBestRun: b.dBestRun || 0,
+    dRevenge: b.dRevenge || 0,
+    dSlain: b.dSlain || {},
 
     /* pooled — the `shared` badges read these */
     minutesToday: (((L.days[today] || {}).s || 0) + ((O.days[today] || {}).s || 0)) / 60,
@@ -2020,6 +2107,8 @@ function miniStats(L, b) {
 /* one language's gallery plus the bookkeeping only the checks use */
 const freshSet = () => ({
   unlocked: {}, seen: {}, bestStreak: 0, perfectSpeeds: {}, chunksDone: 0, speedChanged: false,
+  dRung: 1, dHp: null, dLives: null, dClean: true, dUp: 0, dDown: 0, dNext: null,
+  dRev: -1, dWins: 0, dCleanWins: 0, dRun: 0, dBestRun: 0, dRevenge: 0, dSlain: {},
   vRounds: 0, vPerfect: 0, vBest: 0, lRounds: 0, lPerfect: 0, lBest: 0,
   mRounds: 0, mPerfect: 0, mBest: 0, tRounds: 0, tPerfect: 0
 });
@@ -2374,39 +2463,87 @@ function DayRing({ day, size = 48 }) {
    is exactly the salient irrelevant cue that Vokal-Blitz refuses to give
    him — with the added cost here that it would be moving during the one
    150-to-7500 ms window the whole exercise depends on. */
-function Stick({ kind, pose }) {
+function Stick({ kind, pose, foe, gear = 0 }) {
   const king = kind === "king";
-  const limb = king ? C.blue : "#6B7280";
+  const f = king ? null : foe || FOES[1];
+  const limb = king ? (gear >= 4 ? "#C98A1E" : C.blue) : f.limb;
   const down = pose === "down";
   const anim = pose === "lunge" ? "bwLunge .3s ease-out"
     : pose === "hurt" ? "bwHurt .34s ease-out"
     : down ? "bwKO .42s ease-in" : "none";
   const ec = down && !king ? "#fff" : C.ink;
+  const sc = king ? 1 : f.scale;
+  const w = Math.round(54 * sc), h = Math.round(58 * sc);
   return (
-    <div style={{ width: 54, height: 58, flexShrink: 0, transform: king ? "none" : "scaleX(-1)" }}>
-      <svg viewBox="0 0 52 58" width="54" height="58" aria-hidden="true"
+    <div style={{ width: w, height: h, flexShrink: 0, transform: king ? "none" : "scaleX(-1)" }}>
+      <svg viewBox="0 0 52 58" width={w} height={h} aria-hidden="true"
         style={{
           display: "block", overflow: "visible", transformOrigin: "50% 92%",
           transform: down ? "rotate(72deg)" : "none", animation: anim
         }}>
-        <g stroke={limb} strokeWidth="3.4" strokeLinecap="round" fill="none">
+        {/* the cape goes on before the body so it hangs behind him */}
+        {king && gear >= 2 && (
+          <path d="M22 23 Q11 33 15 47 L26 40 Z" fill="#C0392B" stroke={C.ink} strokeWidth="2.2" strokeLinejoin="round" />
+        )}
+        {f && f.head === "snout" && (
+          <path d="M24 22 Q10 18 8 34 Q18 30 24 33 Z" fill={f.skin} stroke={C.ink} strokeWidth="2.6" strokeLinejoin="round" />
+        )}
+        <g stroke={limb} strokeWidth={king && gear >= 4 ? "4.2" : "3.4"} strokeLinecap="round" fill="none">
           <path d="M26 24 L26 38" />
           <path d="M26 38 L19 52 M26 38 L33 52" />
           <path d="M26 28 L17 34" />
           <path d="M26 27 L38 22" />
         </g>
-        <path d="M38 22 L50 13" stroke="#9AA7B6" strokeWidth="3" strokeLinecap="round" />
-        <path d="M36 25.5 L40.5 18.5" stroke={C.ink} strokeWidth="2.4" strokeLinecap="round" />
-        <circle cx="26" cy="15" r="8" fill={king ? "#FFE9B0" : "#E7C9A9"} stroke={C.ink} strokeWidth="3" />
+        {king && gear >= 4 && <rect x="22" y="24" width="8" height="11" rx="3" fill={C.gold} stroke={C.ink} strokeWidth="2" />}
+        {(king || f.arm === "sword") && <>
+          <path d={king && gear >= 1 ? "M38 22 L53 10" : "M38 22 L50 13"}
+            stroke={king && gear >= 1 ? C.gold : "#9AA7B6"} strokeWidth={king && gear >= 1 ? "3.6" : "3"} strokeLinecap="round" />
+          <path d="M36 25.5 L40.5 18.5" stroke={C.ink} strokeWidth="2.4" strokeLinecap="round" />
+        </>}
+        {f && f.arm === "club" && (
+          <g><path d="M38 22 L45 15" stroke="#8A6A45" strokeWidth="3.4" strokeLinecap="round" />
+            <ellipse cx="48" cy="11" rx="6.5" ry="5.5" fill="#8A6A45" stroke={C.ink} strokeWidth="2.4" /></g>
+        )}
+        {f && f.arm === "claw" && (
+          <g stroke={C.ink} strokeWidth="2.2" strokeLinecap="round" fill="none">
+            <path d="M38 22 L43 18 M38 22 L43 22 M38 22 L42 26" />
+          </g>
+        )}
+        {f && f.head === "ears" && (
+          <g fill={f.skin} stroke={C.ink} strokeWidth="2.2" strokeLinejoin="round">
+            <path d="M19 12 L10 6 L17 18 Z" /><path d="M33 12 L42 6 L35 18 Z" />
+          </g>
+        )}
+        {f && f.head === "snout" && (
+          <path d="M31 20 Q44 12 46 24 Q38 22 33 27 Z" fill={f.skin} stroke={C.ink} strokeWidth="2.4" strokeLinejoin="round" />
+        )}
+        <circle cx="26" cy="15" r="8" fill={king ? "#FFE9B0" : f.skin} stroke={C.ink} strokeWidth="3" />
+        {f && f.head === "horns" && (
+          <g fill="#F0E2C8" stroke={C.ink} strokeWidth="2.2" strokeLinejoin="round">
+            <path d="M20 8 L16 0 L25 5 Z" /><path d="M32 8 L36 0 L27 5 Z" />
+          </g>
+        )}
+        {f && f.head === "beard" && (
+          <path d="M19 18 Q26 32 33 18 Z" fill="#E8E2D6" stroke={C.ink} strokeWidth="2.2" strokeLinejoin="round" />
+        )}
+        {f && f.head === "snout" && (
+          <g><path d="M22 7 L18 0 L27 5 Z" fill="#F0E2C8" stroke={C.ink} strokeWidth="2" strokeLinejoin="round" />
+            <path d="M26 24 Q40 28 44 40 Q34 36 26 34 Z" fill={f.skin} stroke={C.ink} strokeWidth="2.4" strokeLinejoin="round" /></g>
+        )}
         {king
-          ? <path d="M17 7.5 L19 1.5 L23 5.5 L26 0.5 L29 5.5 L33 1.5 L35 7.5 Z"
-              fill={C.gold} stroke={C.ink} strokeWidth="2.2" strokeLinejoin="round" />
-          : <g>
+          ? <g>
+              <path d="M17 7.5 L19 1.5 L23 5.5 L26 0.5 L29 5.5 L33 1.5 L35 7.5 Z"
+                fill={C.gold} stroke={C.ink} strokeWidth="2.2" strokeLinejoin="round" />
+              {gear >= 3 && <g fill="#C0392B" stroke={C.ink} strokeWidth="1.2">
+                <circle cx="21" cy="5.4" r="1.7" /><circle cx="26" cy="4.2" r="1.9" /><circle cx="31" cy="5.4" r="1.7" />
+              </g>}
+            </g>
+          : f.head === "mask" ? <g>
               <path d="M17.5 10 Q26 0 34.5 10 Z" fill="#3A4353" stroke={C.ink} strokeWidth="2.2" strokeLinejoin="round" />
               <path d="M13.5 10.5 L38.5 10.5" stroke={C.ink} strokeWidth="3" strokeLinecap="round" />
               <rect x="18" y="12" width="16" height="5.4" rx="2.2" fill="#22314A" />
-            </g>}
-        {(king || down) && (down
+            </g> : null}
+        {(king || down || (f && f.head !== "mask")) && (down
           ? <g stroke={ec} strokeWidth="2.2" strokeLinecap="round">
               <path d="M21 12.5 l3.4 3.4 M24.4 12.5 l-3.4 3.4" />
               <path d="M28 12.5 l3.4 3.4 M31.4 12.5 l-3.4 3.4" />
@@ -2425,40 +2562,58 @@ function Pips({ n, max, kind }) {
       {Array.from({ length: max }, (_, i) => (i < n
         ? (kind === "heart"
             ? <span key={i} style={{ fontSize: 19, lineHeight: 1 }}>❤️</span>
-            : <span key={i} style={{ width: 10, height: 21, borderRadius: 4, background: "#6B7280", border: `2px solid ${C.ink}` }} />)
+            : <span key={i} style={{ width: max > 8 ? 7 : 10, height: 21, borderRadius: 4, background: "#6B7280", border: `2px solid ${C.ink}` }} />)
         : (kind === "heart"
             ? <span key={i} style={{ fontSize: 19, lineHeight: 1, opacity: 0.25, filter: "grayscale(1)" }}>❤️</span>
-            : <span key={i} style={{ width: 10, height: 21, borderRadius: 4, background: "transparent", border: `2px solid rgba(34,49,74,.28)` }} />)
+            : <span key={i} style={{ width: max > 8 ? 7 : 10, height: 21, borderRadius: 4, background: "transparent", border: `2px solid rgba(34,49,74,.28)` }} />)
       ))}
     </div>
   );
 }
-function DuelBand({ d, frozen }) {
-  const kingOut = d.lives <= 0, banditOut = d.hp <= 0;
-  const e = frozen ? "" : d.evt;
+function DuelBand({ d, evt, frozen, gear }) {
+  const kingOut = d.lives <= 0, foeOut = d.hp <= 0;
+  const e = frozen ? "" : evt;
   const hitting = e === "hit" || e === "ko" || e === "ko0";
   const taking = e === "hurt" || e === "dead";
   const kPose = kingOut ? "down" : taking ? "hurt" : hitting ? "lunge" : "idle";
-  const bPose = banditOut ? "down" : taking ? "lunge" : hitting ? "hurt" : "idle";
-  const mid = banditOut ? "🏆" : kingOut ? "💫" : hitting ? "💥" : taking ? "💢" : "⚔️";
+  const bPose = foeOut ? "down" : taking ? "lunge" : hitting ? "hurt" : "idle";
+  const mid = foeOut ? "🏆" : kingOut ? "💫" : hitting ? "💥" : taking ? "💢" : "⚔️";
+  const rematch = d.rev === d.rung;
   return (
     <div data-duel="1" data-duel-hp={d.hp} data-duel-lives={d.lives}
-      data-duel-maxhp={DUEL_HP} data-duel-maxlives={DUEL_LIVES}
-      data-duel-evt={d.evt || ""} data-duel-frozen={frozen ? 1 : 0}
+      data-duel-maxhp={d.foe.hp} data-duel-maxlives={d.foe.lives}
+      data-duel-foe={d.foe.id} data-duel-rung={d.rung} data-duel-rev={d.rev}
+      data-duel-gear={gear} data-duel-wins={d.wins} data-duel-best={d.best}
+      data-duel-rematch={rematch ? 1 : 0}
+      data-duel-evt={evt || ""} data-duel-frozen={frozen ? 1 : 0}
       data-duel-pose={kPose}
       style={{
-        alignSelf: "center", width: "min(94vw,720px)", height: "clamp(58px,10vh,74px)",
+        alignSelf: "center", width: "min(94vw,720px)", height: "clamp(62px,11vh,80px)",
         flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-between",
-        gap: 10, padding: "0 4px"
+        gap: 8, padding: "0 4px"
       }}>
       <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-        <Stick kind="king" pose={kPose} />
-        <Pips n={d.lives} max={DUEL_LIVES} kind="heart" />
+        <Stick kind="king" pose={kPose} gear={gear} />
+        <Pips n={d.lives} max={d.foe.lives} kind="heart" />
       </div>
-      <div style={{ fontSize: 27, lineHeight: 1 }}>{mid}</div>
+      {/* the opponent's name, in English in both languages: these are proper
+          names, he is learning to read both, and "Drache"/"Dragon" flipping
+          with the language would make the ladder harder to talk about */}
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", lineHeight: 1.05 }}>
+        {/* a div, not a span, and that is load-bearing for the suite: every
+            test finds the flashed word by taking the first <span> of plain
+            letters outside a button. An opponent called "Bandit" in a span
+            sits earlier in the DOM than the flash card and every one of those
+            tests then answers the word "Bandit". Do not put readable words in
+            a span anywhere on the play screen. */}
+        <div style={{ fontSize: 13, fontWeight: 800, color: rematch ? C.red : "#5B6C82", letterSpacing: .4 }}>
+          {rematch ? "🔁 " : ""}{d.foe.name}
+        </div>
+        <span style={{ fontSize: 24 }}>{mid}</span>
+      </div>
       <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-        <Pips n={d.hp} max={DUEL_HP} kind="bar" />
-        <Stick kind="bandit" pose={bPose} />
+        <Pips n={d.hp} max={d.foe.hp} kind="bar" />
+        <Stick kind="foe" foe={d.foe} pose={bPose} />
       </div>
     </div>
   );
@@ -2718,9 +2873,12 @@ export default function App() {
   const idxRef = useRef(0);
   const rollRef = useRef([]);
   const runRef = useRef(0);
-  /* The duel outlives rounds, languages and trips back to the home screen on
-     purpose — see freshDuel. It is only ever reset by being resolved. */
-  const duelRef = useRef(freshDuel());
+  /* Only the pose lives in memory. The duel itself — rung, hit points, lives,
+     records, the rematch mark — is in the achievements book, which
+     runAchCheck persists on every single answer. It was a ref for one commit
+     and that made closing the app the cheapest way out of a duel going badly:
+     a competitive child finds that in a week. */
+  const duelEvtRef = useRef("");
   const tilesAt = useRef(0);
   const spanAt = useRef(0);       // start of the current active-time span (see span())
   const pendingLvl = useRef(null);
@@ -3337,9 +3495,6 @@ export default function App() {
        change; a KO that needed a longer hold would also have broken the flat
        sleeps in three existing tests, silently, by moving the tap that
        follows into the feedback stage. */
-    let du = duelRef.current;
-    if (!turbo && (du.hp <= 0 || du.lives <= 0)) { du = freshDuel(); duelRef.current = du; }
-    let dEvt = "";
 
     const prev = dataRef.current;
     const L = clone(prev[lang]);
@@ -3348,7 +3503,7 @@ export default function App() {
     const before = starLevel(L, list);
     const ws = L.words[target] || (L.words[target] = { s: 0, cc: 0, d: [], iv: 0, due: null, r: 0, wr: 0, tn: [0, 0, 0], everMastered: false });
     if (!ws.tn) ws.tn = [0, 0, 0];
-    let earned = 0, mastered = false;
+    let earned = 0, mastered = false, payMult = 1;
 
     /* Turbo answers stay out of the window. Turbo is forced ≤500 ms and DESIGN
        already rules that its failures must not demote — letting them depress
@@ -3380,6 +3535,7 @@ export default function App() {
       const dm = DUR[eff];
       const mult = acc >= 0.8 ? (dm <= 350 ? 3 : dm <= 700 ? 2 : 1) : 1;
       earned += mult;
+      payMult = mult;
       runRef.current++;
       if (runRef.current > achRef.current[lang].bestStreak) achRef.current = setBook(achRef.current, lang, { bestStreak: runRef.current });
       /* The +5 at ten in a row used to be paid here, off `runRef`, and nothing
@@ -3395,16 +3551,7 @@ export default function App() {
          it would make the turtle setting the best way to win. Paying the win
          at 5 coins on turtle and 15 on rocket puts the slider back on the
          other side of the trade. */
-      if (!turbo) {
-        du.hp--; dEvt = "hit";
-        if (du.hp <= 0) {
-          const flawless = du.lives === DUEL_LIVES;
-          dEvt = flawless ? "ko0" : "ko";
-          earned += (flawless ? 10 : 5) * mult;
-          chunkRef.current.ko++;
-          if (flawless) chunkRef.current.ko0++;
-        }
-      }
+
     } else {
       ws.wr++;
       ws.mx = ws.mx || {}; ws.mx[w] = (ws.mx[w] || 0) + 1;   // which distractor fooled him
@@ -3414,12 +3561,61 @@ export default function App() {
         ws.due = plusDays(1);                            // resurfaces tomorrow
       }
       runRef.current = 0;
-      if (!turbo) {
-        du.lives--; dEvt = "hurt";
-        if (du.lives <= 0) { dEvt = "dead"; chunkRef.current.died++; }
-      }
       const pos = Math.min(queueRef.current.length, idxRef.current + 3 + Math.floor(Math.random() * 4));
       queueRef.current.splice(pos, 0, cur);              // re-queue 3–6 later
+    }
+    /* The duel runs here, after both branches, and not at the top of the
+       answer where it reads more naturally. `earned` and the speed multiplier
+       are declared inside those branches, so a duel block above them compiles
+       and then throws "Cannot access before initialization" from inside a
+       render once the bundler hoists the binding — eight times, in the middle
+       of a won duel, with a minified name that says nothing. */
+    const bk0 = achRef.current[lang];
+    let dEvt = "", dPatch = null;
+    if (!turbo) {
+      let rung = bk0.dRung == null ? 1 : bk0.dRung;
+      let hp = bk0.dHp == null ? foeOf(rung).hp : bk0.dHp;
+      let lives = bk0.dLives == null ? foeOf(rung).lives : bk0.dLives;
+      let clean = bk0.dClean !== false;
+      let up = bk0.dUp || 0, down = bk0.dDown || 0, run = bk0.dRun || 0;
+      const p = {};
+      if (hp <= 0 || lives <= 0) {
+        /* the climb or the drop lands here, with the next opponent, so the one
+           he just beat or lost to stays on screen until then */
+        rung = bk0.dNext == null ? rung : bk0.dNext;
+        hp = foeOf(rung).hp; lives = foeOf(rung).lives; clean = true;
+        p.dNext = null;
+      }
+      if (ok) {
+        hp--; dEvt = "hit";
+        if (hp <= 0) {
+          dEvt = clean ? "ko0" : "ko";
+          /* a tougher opponent pays more, which is what stops losing on
+             purpose to farm an easy rung from being the better-paid game */
+          earned += (4 + 2 * rung) * (clean ? 2 : 1) * payMult;
+          run++; up++; down = 0;
+          p.dWins = (bk0.dWins || 0) + 1;
+          if (clean) p.dCleanWins = (bk0.dCleanWins || 0) + 1;
+          if (!(bk0.dSlain || {})[rung]) p.dSlain = { ...(bk0.dSlain || {}), [rung]: 1 };
+          if ((bk0.dRev == null ? -1 : bk0.dRev) === rung) { p.dRev = -1; p.dRevenge = (bk0.dRevenge || 0) + 1; }
+          if (run > (bk0.dBestRun || 0)) p.dBestRun = run;
+          chunkRef.current.ko++;
+          if (clean) chunkRef.current.ko0++;
+          if (up >= LADDER_UP) { p.dNext = Math.min(FOES.length - 1, rung + 1); up = 0; }
+          else p.dNext = rung;
+        }
+      } else {
+        lives--; clean = false; dEvt = "hurt";
+        if (lives <= 0) {
+          dEvt = "dead";
+          chunkRef.current.died++;
+          run = 0; down++; up = 0;
+          p.dRev = rung;                       // he owes this one a rematch
+          if (down >= LADDER_DOWN) { p.dNext = Math.max(0, rung - 1); down = 0; }
+          else p.dNext = rung;
+        }
+      }
+      dPatch = { ...p, dRung: rung, dHp: hp, dLives: lives, dClean: clean, dUp: up, dDown: down, dRun: run };
     }
     if (!turbo) noteError(L, today, target, w, ok);   // dated error log, see trimErs
     if (sndRef.current) speak(target, lang, voiceURIsRef.current, speechRateRef.current, speechPitchRef.current); // hear the word either way, right or wrong
@@ -3445,8 +3641,16 @@ export default function App() {
     const newData = { ...prev, [lang]: L };
     setData(newData);
     scheduleSave(lang);
+    /* Before runAchCheck, and that is not a style choice. `achRef.current` is
+       reassigned from the `ach` state on every render, so a write to it that
+       runAchCheck never sees is erased by the next render — and runAchCheck is
+       the only thing here that calls setAch and persists. Writing the duel
+       after it cost an hour: the band showed 7 hit points for seven correct
+       answers in a row. It also has to be before the check so the badge for
+       felling an opponent fires on the answer that fells it. */
+    if (dPatch) achRef.current = setBook(achRef.current, lang, dPatch);
     runAchCheck(newData);
-    du.evt = dEvt;
+    duelEvtRef.current = dEvt;
     if (sndRef.current) {
       if (!ok) (dEvt === "dead" ? sfx.dead() : sfx.no());
       else if (dEvt === "ko0") sfx.ko0();
@@ -5064,6 +5268,12 @@ export default function App() {
             <span style={{ color: C.green, fontSize: 28, fontWeight: 900 }}>✓</span>
           </div>
         )}
+        {!turboMode && duelOf(ach[lang]).best >= 0 && (
+          <div data-chunk-best={duelOf(ach[lang]).best}
+            style={{ fontSize: 17, fontWeight: 800, color: "#5B6C82" }}>
+            Best beaten: {FOES[duelOf(ach[lang]).best].name} · Next: {duelOf(ach[lang]).foe.name}
+          </div>
+        )}
         {ch.mast.length > 0 && (
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center", maxWidth: "min(94vw,700px)" }}>
             {ch.mast.map((w) => (
@@ -5133,7 +5343,8 @@ export default function App() {
           lives for a miss the rest of the app forgives, or never collapse at
           all, which would hand out clean wins for free. */}
       {modeRef.current.t !== "turbo" && (
-        <DuelBand d={duelRef.current} frozen={stage === "fix" || stage === "word"} />
+        <DuelBand d={duelOf(ach[lang])} evt={duelEvtRef.current} gear={gearOf((ach[lang] || {}).dWins || 0)}
+          frozen={stage === "fix" || stage === "word"} />
       )}
 
       {/* flash card */}
