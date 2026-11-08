@@ -195,4 +195,7 @@ permitted through this proxy"); reads still work. A plain `git push` of a
 single commit is equally atomic — one commit, one tree, one ref update — so
 commit everything in one commit and push that, with the remote set to
 `https://github.com/Ikarus-eth/blitzword` (the proxy supplies credentials).
-Verify through the API exactly as before.
+Verify blobs through the API exactly as before. `/pages/builds/latest` is
+blocked by the same proxy; use
+`/actions/runs?head_sha=<sha>` instead — the "pages build and deployment" run
+reaching `completed`/`success` is the same signal.
