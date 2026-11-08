@@ -152,6 +152,61 @@ kept anyway: a word vanishing for weeks is how "went" would stop being practised
 at all. `test_open_cap` pins all of it, and fails on the build before, on a
 weakest-first ranking, and with the parked slot removed.
 
+## Enough for today — a word he has, rests until tomorrow
+
+8 Nov 2026: he found it too easy, with the new words coming round over and
+over. The cause is the open-set cap above working as built: a queue holds the
+8 unfinished words plus the parked one, and it rebuilds about a dozen times in
+an 11-minute session, so every unfinished word was served again in every
+build — four or five times in 40 answers on the old build, measured by
+`test_rest_today`. Mastery needs a second calendar day anyway, so those
+same-day repeats could not move a word forward.
+
+The rule: an unfinished word answered right `REST_AFTER` (2) times in a row
+today, **with its recent window at `MASTER_ACC` (80%) or better**, gets
+`ws.rest = today`. `buildQueue` leaves resting words out entirely — of `due`,
+the pool and the cap ranking — so the slot goes to the next word; `nextItem`
+skips copies already sitting in a queue built before the word went to rest.
+Tomorrow's first right answer finishes it (cc 3, two days, window clean). The
+run counter (`tn2`, `tdd`) is per day and a miss resets it. Turbo is untouched.
+Finished words never rest — reviews are scheduled by interval and always run.
+
+**The accuracy condition is not optional, and the first version did not have
+it.** Simulated over 14 days (`tools/sim_rest.mjs`: real `buildQueue` from
+`App.jsx`, synthetic learner whose accuracy starts 45–90% and grows, 150
+answers a day, 100 runs), resting every word after two right:
+
+| arm | right-twice repeats/day | new words/day | finished 7 d / 14 d | unfinished carried | accuracy |
+|---|---|---|---|---|---|
+| before | 19.0 | 9.6 | 61 / 119 | 15 | 73.1% |
+| rest after 2, no floor | — | 9.4 | 35 / 98 | 33 | 74.2% |
+| rest after 2 + 80% floor (shipped) | 0.3 | 11.1 | 75 / 139 | 17 | 71.4% |
+
+Without the floor finishes halved and the backlog doubled — the 21-word grind
+the cap was built against. Mechanism: Flüssig needs 80% over the last ten
+answers, and a word with two misses in its window needs about ten more answers
+to clear it; at two a day that is a week. So a word under the floor keeps its
+same-day practice and only words on track rest. With a stronger learner
+(starting 65–100%) the before-arm spent 52 answers a day — a third of the
+session — on words already right twice; after, 1.5, and 133 words finished in
+7 days against 90.
+
+The residual repeats come from one place: when every unfinished word rests and
+nothing is finished yet (only possible in the first days), `buildQueue` serves
+the resting words rather than send him home mid-chunk, and marks that queue
+`resting` so `nextItem` does not skip it into a loop.
+
+`test_rest_today` pins it: no on-track word a third time in 40 all-right
+answers (fails on the old build), a word under the floor still served ≥3
+times, more than the four starting words met. Note its control behaves
+differently on the old build too: there the weak word was squeezed out of the
+cap by level-2 words at 100% and appeared once, so the control only means
+anything on the new build.
+
+Do not lower `REST_AFTER` to 1 or drop the floor without re-running the
+simulation against an export: both move the backlog, and the backlog is what
+made the sessions a grind.
+
 ## Two separate level gates — deliberate
 
 - **Reach level** (which words enter practice): unlocks at **≥70%** of the previous

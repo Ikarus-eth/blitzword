@@ -421,6 +421,11 @@ const migrate = (L) => {
 const tierOf = (d) => (d <= 500 ? 2 : d <= 1500 ? 1 : 0);
 const tiOf = (tn) => (tn[2] >= 2 ? 2 : tn[1] >= 2 ? 1 : tn[0] >= 2 ? 0 : -1);
 const isHot = (ws) => ws && ws.s === 1 && ws.cc >= 3;   // mastered pending 2nd day
+/* An unfinished word read right REST_AFTER times in a row today, with its
+   recent window at MASTER_ACC or better, rests until tomorrow. See DESIGN
+   "Enough for today". `rest` is the ISO day it rests on. */
+const REST_AFTER = 2;
+const restsToday = (ws, today) => !!ws && ws.s !== 2 && ws.rest === today;
 
 /* ---- rolling per-word accuracy: `ws.h`, last HIST_N answers as 1/0 ----------
    Why this exists. The Flüssig gate was "3 correct in a row on 2 different
@@ -612,6 +617,7 @@ function buildQueue(L, list) {
   let due = [], pool = [];
   list.forEach((lvl, li) => lvl.forEach((entry) => {
     const ws = L.words[entry[0]];
+    if (restsToday(ws, today)) return;                 // enough for today, see REST_AFTER
     if (ws && ws.due && ws.due <= today) due.push(entry);
     else if (li < reach && (!ws || ws.s < 2)) pool.push(entry);
   }));
@@ -676,6 +682,16 @@ function buildQueue(L, list) {
     list.slice(0, reach).forEach((lvl) => lvl.forEach((e) => {
       if (L.words[e[0]] && L.words[e[0]].s === 2) q.push(e);
     }));
+    /* Everything unfinished is resting and nothing is finished yet — only
+       possible in the first days. Serving the resting words beats sending
+       him back to the home screen in the middle of a chunk. */
+    if (!q.length) {
+      list.slice(0, reach).forEach((lvl) => lvl.forEach((e) => {
+        if (restsToday(L.words[e[0]], today)) q.push(e);
+      }));
+      const rq = shuffle(q); rq.resting = true;          // nextItem must not skip these
+      return rq;
+    }
     return shuffle(q);
   }
   return q;
@@ -3073,6 +3089,14 @@ export default function App() {
       idxRef.current = 0;
       if (!queueRef.current.length) { setPhase("home"); return; }
     }
+    /* a word that went to rest after this queue was built — or a miss copy
+       spliced in before it came good — is skipped, not served */
+    if (modeRef.current.t !== "turbo" && !queueRef.current.resting) {
+      const L0 = dataRef.current[langRef.current], t0 = tISO();
+      const skip = (k) => restsToday(L0.words[queueRef.current[k][0]], t0);
+      while (idxRef.current < queueRef.current.length && skip(idxRef.current)) idxRef.current++;
+      if (idxRef.current >= queueRef.current.length) { nextItem(); return; }
+    }
     const entry = queueRef.current[idxRef.current];
     setCur(entry);
     setTiles(composeTiles(entry, langRef.current));
@@ -3526,8 +3550,16 @@ export default function App() {
         /* streak + two days + recent accuracy. The first two say he can do it
            now and could do it yesterday; the third says it is not a lucky run
            inside a word he mostly misses. */
+        ws.tn2 = ws.tdd === today ? (ws.tn2 || 0) + 1 : 1; ws.tdd = today;   // right in a row, today
         if (ws.cc >= 3 && ws.d.length >= 2 && recentAcc(ws) >= MASTER_ACC) {
           ws.s = 2; ws.iv = 0; ws.due = plusDays(IVL[0]); ws.everMastered = true; mastered = true;
+        } else if (ws.tn2 >= REST_AFTER && recentAcc(ws) >= MASTER_ACC) {
+          /* He has it for today. More of it today was a fifth of the session
+             spent on words he already reads; a word still under the accuracy
+             floor keeps its same-day practice, because two answers a day cannot
+             lift a window of ten to 80% (simulated: finishes halved, backlog
+             doubled). Tomorrow's first right answer finishes it. */
+          ws.rest = today;
         }
       }
       const rl = rollRef.current;
@@ -3556,7 +3588,7 @@ export default function App() {
       ws.wr++;
       ws.mx = ws.mx || {}; ws.mx[w] = (ws.mx[w] || 0) + 1;   // which distractor fooled him
       if (!turbo) {
-        ws.cc = 0;
+        ws.cc = 0; ws.tn2 = 0; ws.tdd = today;
         if (ws.s === 2) { ws.s = 1; ws.iv = 0; }         // demote
         ws.due = plusDays(1);                            // resurfaces tomorrow
       }

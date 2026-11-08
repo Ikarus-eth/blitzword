@@ -92,6 +92,13 @@ prints `DONE` — same files, same pass rule, resumable.
   post-tap wait lets an item be skipped (the exact mechanism that was wrong
   about `test_animal_mix` until it was measured), or one build serving two
   parked words. Neither has been measured yet.
+  **Measured 8 Nov 2026, narrowing it:** logging the answer order shows the
+  first build has 11 items but the second only 9 — both reviews were answered
+  in the first build and are no longer due — so 22 answers reach a third
+  build every run; nothing has to "sneak in". The failures are that third
+  build's parked word (`sie`) at answers 21–22. Rate on stock `16da4e0`: 5 of
+  12; on the rest-for-today build: 6 of 12, same failure. Still open: why the
+  third build sometimes parks a word already counted, which is what passes.
 - **Never raise `DAY_GOAL` as a global constant.** The streak is derived, so a
   higher goal is judged against days already practised and wipes them. Every day
   in the 4 Sep export was between 601 and 659 s; a global 660 would have taken a
@@ -168,6 +175,10 @@ prints `DONE` — same files, same pass rule, resumable.
   a button. The duel's opponent name sits earlier in the DOM than the flash
   card, and as a span it made the whole suite answer the word "Bandit". It is
   a `<div>` for that reason.
+- **An unfinished word right twice in a row today rests until tomorrow — only
+  if its recent window is ≥80%.** Without that condition the simulation halved
+  finishes and doubled the unfinished backlog. Re-run `tools/sim_rest.mjs`
+  before touching `REST_AFTER` or the floor; see DESIGN "Enough for today".
 - **`meta` has three write sites** — the export object, the debounced save and
   `flush()`. A field added to one and not the others survives until a device move
   and then vanishes. That is how the badge case was wiped once.
@@ -177,3 +188,11 @@ prints `DONE` — same files, same pass rule, resumable.
 Push to `main`; Pages rebuilds in ~1 min. Prefer one atomic commit via the Git Data
 API (blobs → tree → commit → ref) so the site is never half-updated.
 `words/de-audio.json` is ~1.6 MB, past the simple Contents API limit — use blobs.
+
+**8 Nov 2026: the Claude sandbox's proxy refuses Git Data API writes**
+(`POST /git/blobs` → 403 "Write access to this GitHub API path is not
+permitted through this proxy"); reads still work. A plain `git push` of a
+single commit is equally atomic — one commit, one tree, one ref update — so
+commit everything in one commit and push that, with the remote set to
+`https://github.com/Ikarus-eth/blitzword` (the proxy supplies credentials).
+Verify through the API exactly as before.
